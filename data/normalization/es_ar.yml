@@ -1,0 +1,13 @@
+rules:
+  - pattern: "\\bme duele mal\\b"
+    replace: "me duele mucho"
+  - pattern: "\\bme duele una banda\\b"
+    replace: "me duele mucho"
+  - pattern: "\\bse me hinch[oó]\\b"
+    replace: "tengo hinchazon"
+  - pattern: "\\btengo la panza hinchada\\b"
+    replace: "tengo distension abdominal"
+  - pattern: "\\bme falta el aire\\b"
+    replace: "tengo dificultad para respirar"
+  - pattern: "\\bme desmayo\\b"
+    replace: "tengo sincope"

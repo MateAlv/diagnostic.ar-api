@@ -1,0 +1,13 @@
+format-version: 1.2
+
+typedef: something
+
+[Term]
+id: HP:0001250
+name: Seizure
+synonym: "Convulsion" EXACT []
+
+[Term]
+id: HP:0001945
+name: Fever
+synonym: "Pyrexia" EXACT []

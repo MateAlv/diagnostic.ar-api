@@ -1,0 +1,12 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.3
+pydantic==2.8.2
+pydantic-settings==2.4.0
+redis==5.0.7
+PyYAML==6.0.2
+requests==2.32.3
+spacy==3.7.5
+rapidfuzz==3.9.6
+transformers==4.43.4
+torch==2.2.2
+sentencepiece==0.2.0

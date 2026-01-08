@@ -1,0 +1,10 @@
+version: "3.9"
+
+services:
+  api:
+    runtime: nvidia
+    environment:
+      NLLB_DEVICE: cuda
+      NLLB_MODEL_NAME: facebook/nllb-200-1.3B
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility

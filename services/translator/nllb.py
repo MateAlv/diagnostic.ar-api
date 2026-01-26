@@ -60,6 +60,29 @@ class NllbTranslator:
         ).to(self.device)
         self._model.eval()
 
+    def _resolve_lang_id(self, tokenizer, lang_code: str) -> int:
+        lang_map = getattr(tokenizer, "lang_code_to_id", None)
+        if isinstance(lang_map, dict):
+            lang_id = lang_map.get(lang_code)
+            if isinstance(lang_id, int):
+                return lang_id
+        get_lang_id = getattr(tokenizer, "get_lang_id", None)
+        if callable(get_lang_id):
+            lang_id = get_lang_id(lang_code)
+            if isinstance(lang_id, int):
+                return lang_id
+        convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+        if callable(convert):
+            lang_id = convert(lang_code)
+            if isinstance(lang_id, int) and getattr(tokenizer, "unk_token_id", None) != lang_id:
+                return lang_id
+        get_vocab = getattr(tokenizer, "get_vocab", None)
+        if callable(get_vocab):
+            vocab = get_vocab()
+            if isinstance(vocab, dict) and lang_code in vocab:
+                return vocab[lang_code]
+        raise ValueError(f"Unsupported target language code: {lang_code}")
+
     def translate(self, text: str, src_lang: str, tgt_lang: str) -> str:
         if not text:
             return ""
@@ -69,10 +92,7 @@ class NllbTranslator:
         tokenizer.src_lang = src_lang
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        try:
-            forced_bos_token_id = tokenizer.lang_code_to_id[tgt_lang]
-        except AttributeError:
-            forced_bos_token_id = tokenizer.get_lang_id(tgt_lang)
+        forced_bos_token_id = self._resolve_lang_id(tokenizer, tgt_lang)
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,

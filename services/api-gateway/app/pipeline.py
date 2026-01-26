@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from services.translator.nllb import NllbTranslator
 from services.phenotyper.phenotyper import Phenotyper
@@ -45,14 +45,20 @@ class Pipeline:
         key_payload = f"{normalized_text}::{locale}::{self.translator.model_name}::{self.phenotyper.version}"
         return hash_text(key_payload)
 
-    def extract(self, text_es: str, locale: str = "es-AR") -> Dict[str, Any]:
+    def normalize_text(self, text_es: str, locale: str = "es-AR") -> str:
         normalized = text_es
         if locale.lower().startswith("es"):
             normalized = self.normalizer.apply(text_es)
+        return normalized
+
+    def extract_with_meta(
+        self, text_es: str, locale: str = "es-AR", normalized_text: str | None = None
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        normalized = normalized_text or self.normalize_text(text_es, locale)
         cache_key = self._cache_key(normalized, locale)
         cached = self.cache.get(cache_key)
         if cached:
-            return cached
+            return cached, {"normalized_text": normalized, "cache_hit": True, "duration_ms": 0}
 
         started = time.time()
         text_en = self.translator.translate(
@@ -75,4 +81,12 @@ class Pipeline:
         self.cache.set(cache_key, response)
         duration_ms = int((time.time() - started) * 1000)
         logger.info("extract complete in %sms", duration_ms)
+        return response, {
+            "normalized_text": normalized,
+            "cache_hit": False,
+            "duration_ms": duration_ms,
+        }
+
+    def extract(self, text_es: str, locale: str = "es-AR") -> Dict[str, Any]:
+        response, _ = self.extract_with_meta(text_es, locale)
         return response

@@ -117,3 +117,71 @@ Response includes:
 - Minimum acceptable latency for a single request?
 - Should we add a `/csrf` endpoint if the UI is served from a different domain?
 - Should we include a lightweight admin endpoint for reloading normalization rules?
+
+---
+
+# Add-On Plan: Extraction Audit Log + DB Storage
+
+Goal: persist every extraction request with raw ES text, normalized text, EN translation, and extracted HPOs, so we can audit outcomes and improve quality.
+
+## Scope
+- Store every `/extract-hpo` request in a database with full inputs/outputs.
+- Provide a secure, read-only API for reviewing these records.
+- Avoid logging raw PHI to stdout; keep it only in DB.
+- Add retention & redaction controls for privacy.
+
+## Data Model (Postgres)
+Table: `extraction_requests`
+- `id` (uuid, pk)
+- `created_at` (timestamptz, default now)
+- `request_hash` (sha256 of input)
+- `patient_locale` (text)
+- `text_es_raw` (text)
+- `text_es_normalized` (text)
+- `text_en` (text)
+- `phenotypes_json` (jsonb)
+- `model_translation` (text)
+- `model_phenotyper` (text)
+- `cache_hit` (bool)
+- `duration_ms` (int)
+- `error` (text, nullable)
+- `source_ip` (text, nullable)
+- `user_agent` (text, nullable)
+
+Optional: `redacted` (bool) + `text_es_redacted` for future PHI masking.
+
+## API Surface (Secure)
+Add admin endpoints with token auth (env `ADMIN_API_TOKEN`):
+- `GET /admin/extractions?limit=50&offset=0`
+- `GET /admin/extractions/{id}`
+- `GET /admin/extractions/{id}/export` (json)
+
+No raw-text logging to stdout; only request hash + timings.
+
+## Config Flags (env)
+- `STORE_REQUESTS=true|false` (default true)
+- `ADMIN_API_TOKEN=...` (required for admin endpoints)
+- `RETENTION_DAYS=...` (optional cleanup job)
+- `LOG_TEXT=false` (keep default false)
+
+## Implementation Steps
+1) Add Postgres service to `diagnostic.ar-api/docker-compose.yml`.
+2) Add SQLAlchemy/SQLModel + migrations (Alembic) in api-gateway.
+3) Implement persistence in `Pipeline.extract()` or `POST /extract-hpo` handler:
+   - write record on success + on error (with error field).
+4) Add admin routes with token middleware.
+5) Add retention script (cron/manual) to purge old rows.
+6) Add tests:
+   - DB insert on success
+   - DB insert on error
+   - admin endpoints auth
+
+## Security Notes
+- This stores PHI; keep DB local only and disable public exposure.
+- Do not log raw text in API logs.
+- Use least-privileged DB user.
+- Consider disk encryption if running on shared hosts.
+
+## Open Questions (for your review)
+- Should we store *all* raw input, or only a redacted copy by default?
+- Do you want a basic UI page for browsing records, or API-only?

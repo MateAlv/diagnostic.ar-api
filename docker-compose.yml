@@ -23,6 +23,8 @@ services:
       HPO_OBO_PATH: ${HPO_OBO_PATH:-/app/data/hpo/hp.obo}
       HPO_INDEX_PATH: ${HPO_INDEX_PATH:-/app/data/hpo/hpo_index.json}
       HPO_DOWNLOAD_URL: ${HPO_DOWNLOAD_URL:-https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo}
+      AUDIT_DATABASE_URL: ${AUDIT_DATABASE_URL:-postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit}
+      STORE_REQUESTS: ${STORE_REQUESTS:-true}
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
     ports:
@@ -31,6 +33,16 @@ services:
       - ./data:/app/data
     depends_on:
       - redis
+      - audit-db
+
+  audit-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${AUDIT_DB_USER:-diagnostic_audit}
+      POSTGRES_PASSWORD: ${AUDIT_DB_PASSWORD:-diagnostic_audit}
+      POSTGRES_DB: ${AUDIT_DB_NAME:-diagnostic_audit}
+    volumes:
+      - ./data/audit-db:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine

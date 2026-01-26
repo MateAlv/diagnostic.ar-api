@@ -10,3 +10,4 @@ rapidfuzz==3.9.6
 transformers==4.43.4
 torch==2.2.2
 sentencepiece==0.2.0
+psycopg[binary]==3.2.3

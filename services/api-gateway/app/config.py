@@ -49,6 +49,12 @@ class Settings(BaseSettings):
         default=True, validation_alias="ENABLE_SPAN_BACKTRANSLATION"
     )
 
+    audit_database_url: str = Field(
+        default="postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit",
+        validation_alias="AUDIT_DATABASE_URL",
+    )
+    store_requests: bool = Field(default=True, validation_alias="STORE_REQUESTS")
+
     class Config:
         env_file = ".env"
         case_sensitive = False

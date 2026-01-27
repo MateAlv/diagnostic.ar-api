@@ -28,6 +28,7 @@ class Phenotyper:
         hpo_obo_path: str,
         hpo_index_path: str,
         hpo_download_url: str,
+        hpo_es_path: str | None = None,
         spacy_model: str,
         min_confidence: float,
         enable_span_backtranslation: bool,
@@ -35,6 +36,7 @@ class Phenotyper:
         self.hpo_obo_path = hpo_obo_path
         self.hpo_index_path = hpo_index_path
         self.hpo_download_url = hpo_download_url
+        self.hpo_es_path = hpo_es_path
         self.spacy_model = spacy_model
         self.min_confidence = min_confidence
         self.enable_span_backtranslation = enable_span_backtranslation
@@ -45,7 +47,10 @@ class Phenotyper:
     def ensure_ready(self) -> None:
         if self._hpo_index is None:
             self._hpo_index = HpoIndex.load_or_build(
-                self.hpo_obo_path, self.hpo_index_path, self.hpo_download_url
+                self.hpo_obo_path,
+                self.hpo_index_path,
+                self.hpo_download_url,
+                self.hpo_es_path,
             )
             self.hpo_index_loaded = True
         if self._nlp is None:
@@ -155,6 +160,7 @@ class Phenotyper:
             item = {
                 "hpo_id": hpo_id,
                 "label": label,
+                "label_es": self.hpo_index.label_es(hpo_id),
                 "span_es": span_es,
                 "span_en": cand.text,
                 "start_es": start_es,

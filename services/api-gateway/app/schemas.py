@@ -18,6 +18,7 @@ class ModelInfo(BaseModel):
 class PhenotypeItem(BaseModel):
     hpo_id: str
     label: str
+    label_es: str | None = None
     span_es: str
     span_en: str
     start_es: int

@@ -36,6 +36,7 @@ class Pipeline:
             hpo_obo_path=settings.hpo_obo_path,
             hpo_index_path=settings.hpo_index_path,
             hpo_download_url=settings.hpo_download_url,
+            hpo_es_path=settings.hpo_es_path,
             spacy_model=settings.spacy_model,
             min_confidence=settings.min_confidence,
             enable_span_backtranslation=settings.enable_span_backtranslation,

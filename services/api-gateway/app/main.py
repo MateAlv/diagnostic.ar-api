@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .audit import AuditLogger, AuditRecord
@@ -46,6 +46,12 @@ async def healthz():
         "phenotyper": pipeline.phenotyper.version,
         "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
     }
+
+
+@app.get("/hpo/es/search")
+async def search_hpo_es(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50)):
+    results = pipeline.phenotyper.hpo_index.search_es(q, limit)
+    return {"results": results}
 
 
 @app.post("/extract-hpo", response_model=ExtractResponse)

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
         default="/app/data/hpo/hpo_index.json",
         validation_alias="HPO_INDEX_PATH",
     )
+    hpo_es_path: str = Field(
+        default="/app/data/hpo/hp-es.json",
+        validation_alias="HPO_ES_PATH",
+    )
     hpo_download_url: str = Field(
         default="https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo",
         validation_alias="HPO_DOWNLOAD_URL",

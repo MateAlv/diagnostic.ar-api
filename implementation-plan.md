@@ -185,3 +185,59 @@ No raw-text logging to stdout; only request hash + timings.
 ## Open Questions (for your review)
 - Should we store *all* raw input, or only a redacted copy by default?
 - Do you want a basic UI page for browsing records, or API-only?
+
+---
+
+# Add-On Plan: Spanish HPO Labels + Combo Filter (hp-es.tsv)
+
+Goal: show HPOs in Spanish everywhere (chips + results) and add a Spanish combofilter to pick HPOs by translated label.
+
+## Inputs
+- `diagnostic.ar-api/data/hpo/hp-es.tsv`
+  - `subject_id` = HPO ID
+  - `translation_value` = Spanish label
+  - Use rows where `predicate_id == rdfs:label`.
+
+## Scope
+- Load Spanish labels from `hp-es.tsv`.
+- Return `label_es` in `/extract-hpo`.
+- Show Spanish labels on chips.
+- Add a Spanish combofilter for manual HPO selection.
+
+## Data Handling
+1) Parse `hp-es.tsv` at startup (or prebuild a JSON map).
+2) Build `hpo_id -> label_es`.
+3) Build a search index for fast typeahead (lowercase, strip accents).
+4) Fallback to English label if Spanish is missing.
+
+## API Changes
+- Extend phenotype items with `label_es`.
+- Optional: add `GET /hpo/es/search?q=...&limit=20`.
+  - Returns `{ hpo_id, label_es, label_en }` sorted by match.
+
+## Frontend Changes
+- Use `label_es` (or `span_es`) as the default chip label.
+- Add combofilter in "Agregar sintoma manualmente":
+  - User types Spanish; list shows matching HPOs.
+  - Clicking fills description + HPO ID.
+  - Keep free-text fallback when no match.
+
+## Matching Strategy
+- Normalize query: lowercase, strip accents, collapse whitespace.
+- Prefer exact prefix matches, then fuzzy matches (RapidFuzz).
+- Limit to 20 results, shortest label first within each tier.
+
+## Files / Modules
+- `services/phenotyper/index.py`: add Spanish label map.
+- `services/api-gateway/app/schemas.py`: add `label_es`.
+- `services/api-gateway/app/main.py`: include `label_es` in response.
+- `frontend`: add combofilter UI + use `label_es`.
+
+## Tests
+- TSV parser returns correct `label_es`.
+- API returns Spanish label when available.
+- UI combofilter fills description + HPO ID.
+
+## Open Questions
+- Prebuild `hp-es.json` for faster startup, or parse TSV at runtime?
+- Should we add Spanish synonyms (if available), or labels only?

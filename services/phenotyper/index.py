@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -25,6 +26,12 @@ def normalize_key(text: str) -> str:
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"\s+", " ", text)
     return text
+
+
+def normalize_key_es(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return normalize_key(text)
 
 
 def parse_obo(path: Path) -> List[HpoTerm]:
@@ -98,7 +105,7 @@ def build_hpo_index(obo_path: Path, index_path: Path) -> List[HpoTerm]:
 
 
 class HpoIndex:
-    def __init__(self, terms: List[HpoTerm]) -> None:
+    def __init__(self, terms: List[HpoTerm], label_es_by_id: Optional[Dict[str, str]] = None) -> None:
         self.terms = terms
         self.terms_by_id: Dict[str, HpoTerm] = {term.hpo_id: term for term in terms}
         self.label_map: Dict[str, str] = {}
@@ -112,6 +119,17 @@ class HpoIndex:
                 if syn_key:
                     self.synonym_map[syn_key] = term.hpo_id
         self.keys = list({*self.label_map.keys(), *self.synonym_map.keys()})
+        self.label_es_by_id: Dict[str, str] = label_es_by_id or {}
+        self._label_es_entries: List[Dict[str, str]] = []
+        self._label_es_norms: List[str] = []
+        for hpo_id, label_es in self.label_es_by_id.items():
+            normalized = normalize_key_es(label_es)
+            if not normalized:
+                continue
+            self._label_es_entries.append(
+                {"hpo_id": hpo_id, "label_es": label_es, "label_es_norm": normalized}
+            )
+            self._label_es_norms.append(normalized)
 
     @classmethod
     def load_or_build(
@@ -119,17 +137,19 @@ class HpoIndex:
         obo_path: str,
         index_path: str,
         download_url: str,
+        hpo_es_path: Optional[str] = None,
     ) -> "HpoIndex":
         obo = Path(obo_path)
         index = Path(index_path)
+        label_es_by_id = load_hpo_es_json(Path(hpo_es_path)) if hpo_es_path else {}
         if not obo.exists():
             download_hpo(download_url, obo)
         if index.exists():
             payload = json.loads(index.read_text(encoding="utf-8"))
             terms = [HpoTerm(**item) for item in payload]
-            return cls(terms)
+            return cls(terms, label_es_by_id)
         terms = build_hpo_index(obo, index)
-        return cls(terms)
+        return cls(terms, label_es_by_id)
 
     def match(self, text: str, fuzzy_cutoff: int = 75) -> Optional[Tuple[str, str, str, float]]:
         key = normalize_key(text)
@@ -160,3 +180,70 @@ class HpoIndex:
         label = self.terms_by_id[hpo_id].label
         confidence = 0.5 + (score / 100.0) * 0.35
         return hpo_id, label, "fuzzy", confidence
+
+    def label_es(self, hpo_id: str) -> Optional[str]:
+        return self.label_es_by_id.get(hpo_id)
+
+    def search_es(self, query: str, limit: int = 20) -> List[Dict[str, str]]:
+        normalized = normalize_key_es(query)
+        if not normalized or not self._label_es_entries:
+            return []
+        results: List[Dict[str, str]] = []
+        seen = set()
+
+        prefix_matches = [
+            entry for entry in self._label_es_entries if entry["label_es_norm"].startswith(normalized)
+        ]
+        prefix_matches.sort(
+            key=lambda entry: (len(entry["label_es"]), _hpo_numeric_id(entry["hpo_id"]))
+        )
+        for entry in prefix_matches:
+            if entry["hpo_id"] in seen:
+                continue
+            results.append(_format_es_result(entry, self.terms_by_id))
+            seen.add(entry["hpo_id"])
+            if len(results) >= limit:
+                return results
+
+        fuzzy_matches = process.extract(
+            normalized,
+            self._label_es_norms,
+            scorer=fuzz.WRatio,
+            score_cutoff=78,
+            limit=max(limit * 2, 20),
+        )
+        scored_entries: List[tuple[float, Dict[str, str]]] = []
+        for _, score, idx in fuzzy_matches:
+            entry = self._label_es_entries[idx]
+            if entry["hpo_id"] in seen:
+                continue
+            scored_entries.append((score, entry))
+        scored_entries.sort(
+            key=lambda item: (-item[0], _hpo_numeric_id(item[1]["hpo_id"]))
+        )
+        for _, entry in scored_entries:
+            results.append(_format_es_result(entry, self.terms_by_id))
+            seen.add(entry["hpo_id"])
+            if len(results) >= limit:
+                break
+        return results
+
+
+def load_hpo_es_json(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        return {str(k): str(v) for k, v in payload.items()}
+    return {}
+
+
+def _hpo_numeric_id(hpo_id: str) -> int:
+    match = re.search(r"HP:(\\d+)", hpo_id)
+    return int(match.group(1)) if match else 10_000_000
+
+
+def _format_es_result(entry: Dict[str, str], terms_by_id: Dict[str, HpoTerm]) -> Dict[str, str]:
+    hpo_id = entry["hpo_id"]
+    label_en = terms_by_id[hpo_id].label if hpo_id in terms_by_id else ""
+    return {"hpo_id": hpo_id, "label_es": entry["label_es"], "label_en": label_en}

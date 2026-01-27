@@ -22,6 +22,7 @@ services:
       NORMALIZATION_RULES_PATH: ${NORMALIZATION_RULES_PATH:-/app/data/normalization/es_ar.yml}
       HPO_OBO_PATH: ${HPO_OBO_PATH:-/app/data/hpo/hp.obo}
       HPO_INDEX_PATH: ${HPO_INDEX_PATH:-/app/data/hpo/hpo_index.json}
+      HPO_ES_PATH: ${HPO_ES_PATH:-/app/data/hpo/hp-es.json}
       HPO_DOWNLOAD_URL: ${HPO_DOWNLOAD_URL:-https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo}
       AUDIT_DATABASE_URL: ${AUDIT_DATABASE_URL:-postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit}
       STORE_REQUESTS: ${STORE_REQUESTS:-true}

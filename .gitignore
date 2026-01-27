@@ -1,2 +1,3 @@
-# Audit DB data (contains PHI)
 data/audit-db/
+data/hpo/hp-es.tsv
+data/hpo/hp-es.json

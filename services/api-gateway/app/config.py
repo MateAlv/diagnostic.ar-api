@@ -45,9 +45,21 @@ class Settings(BaseSettings):
     min_confidence: float = Field(default=0.6, validation_alias="MIN_CONFIDENCE")
     spacy_model: str = Field(default="en_core_web_sm", validation_alias="SPACY_MODEL")
 
+    # Translator selection: "tower" (recommended for medical) or "nllb"
+    translator_type: str = Field(default="tower", validation_alias="TRANSLATOR_TYPE")
+
+    # NLLB settings (legacy, used if translator_type="nllb")
     nllb_model_name: str = Field(default="auto", validation_alias="NLLB_MODEL_NAME")
     nllb_device: str = Field(default="auto", validation_alias="NLLB_DEVICE")
     nllb_max_length: int = Field(default=512, validation_alias="NLLB_MAX_LENGTH")
+
+    # Tower settings (used if translator_type="tower")
+    tower_model_name: str = Field(default="auto", validation_alias="TOWER_MODEL_NAME")
+    tower_fallback_model: str = Field(default="auto", validation_alias="TOWER_FALLBACK_MODEL")
+    tower_device: str = Field(default="auto", validation_alias="TOWER_DEVICE")
+    tower_max_length: int = Field(default=1024, validation_alias="TOWER_MAX_LENGTH")
+    tower_load_in_4bit: bool = Field(default=True, validation_alias="TOWER_LOAD_IN_4BIT")
+    tower_use_flash_attention: bool = Field(default=True, validation_alias="TOWER_USE_FLASH_ATTENTION")
 
     enable_span_backtranslation: bool = Field(
         default=True, validation_alias="ENABLE_SPAN_BACKTRANSLATION"

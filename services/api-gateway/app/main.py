@@ -48,6 +48,34 @@ async def healthz():
     }
 
 
+@app.get("/info")
+async def info():
+    """Detailed information about loaded models and configuration."""
+    translator_info = {
+        "model_name": pipeline.translator.model_name,
+        "type": settings.translator_type,
+    }
+
+    # Add Tower-specific info if available
+    if hasattr(pipeline.translator, "get_model_info"):
+        translator_info.update(pipeline.translator.get_model_info())
+
+    return {
+        "app_name": settings.app_name,
+        "translator": translator_info,
+        "phenotyper": {
+            "version": pipeline.phenotyper.version,
+            "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
+            "spacy_model": settings.spacy_model,
+            "min_confidence": settings.min_confidence,
+        },
+        "cache": {
+            "enabled": settings.cache_enabled,
+            "ttl_seconds": settings.cache_ttl_seconds,
+        },
+    }
+
+
 @app.get("/hpo/es/search")
 async def search_hpo_es(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50)):
     results = pipeline.phenotyper.hpo_index.search_es(q, limit)

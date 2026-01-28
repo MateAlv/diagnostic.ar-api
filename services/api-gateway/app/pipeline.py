@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Any, Dict, Tuple
 
-from services.translator.nllb import NllbTranslator
+from services.translator import Translator, create_translator
 from services.phenotyper.phenotyper import Phenotyper
 
 from .cache import RedisCache
@@ -19,7 +19,7 @@ class Pipeline:
     def __init__(
         self,
         settings: Settings,
-        translator: NllbTranslator | None = None,
+        translator: Translator | None = None,
         phenotyper: Phenotyper | None = None,
     ) -> None:
         self.settings = settings
@@ -27,19 +27,28 @@ class Pipeline:
         self.cache = RedisCache(
             settings.redis_url, settings.cache_ttl_seconds, settings.cache_enabled
         )
-        self.translator = translator or NllbTranslator(
-            model_name=settings.nllb_model_name,
-            device=settings.nllb_device,
-            max_length=settings.nllb_max_length,
+        self.translator = translator or create_translator(
+            translator_type=settings.translator_type,
+            # NLLB settings
+            nllb_model_name=settings.nllb_model_name,
+            nllb_device=settings.nllb_device,
+            nllb_max_length=settings.nllb_max_length,
+            # Tower settings
+            tower_model_name=settings.tower_model_name,
+            tower_fallback_model=settings.tower_fallback_model,
+            tower_device=settings.tower_device,
+            tower_max_length=settings.tower_max_length,
+            tower_load_in_4bit=settings.tower_load_in_4bit,
+            tower_use_flash_attention=settings.tower_use_flash_attention,
         )
         self.phenotyper = phenotyper or Phenotyper(
             hpo_obo_path=settings.hpo_obo_path,
             hpo_index_path=settings.hpo_index_path,
             hpo_download_url=settings.hpo_download_url,
-            hpo_es_path=settings.hpo_es_path,
             spacy_model=settings.spacy_model,
             min_confidence=settings.min_confidence,
             enable_span_backtranslation=settings.enable_span_backtranslation,
+            hpo_es_path=settings.hpo_es_path,
         )
 
     def _cache_key(self, normalized_text: str, locale: str) -> str:

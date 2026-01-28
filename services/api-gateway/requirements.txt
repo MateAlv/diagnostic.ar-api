@@ -7,7 +7,9 @@ PyYAML==6.0.2
 requests==2.32.3
 spacy==3.7.5
 rapidfuzz==3.9.6
-transformers==4.43.4
-torch==2.2.2
+transformers>=4.43.4
+torch>=2.2.2
 sentencepiece==0.2.0
+accelerate>=0.33.0
+bitsandbytes>=0.43.0
 psycopg[binary]==3.2.3

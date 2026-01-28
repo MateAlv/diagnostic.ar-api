@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
-    runtime: nvidia
     env_file:
       - .env
     environment:
@@ -15,8 +14,18 @@ services:
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
       MIN_CONFIDENCE: ${MIN_CONFIDENCE:-0.6}
       LOG_TEXT: ${LOG_TEXT:-false}
-      NLLB_MODEL_NAME: ${NLLB_MODEL_NAME:-facebook/nllb-200-1.3B}
-      NLLB_DEVICE: ${NLLB_DEVICE:-cuda}
+      # Translator selection: "tower" (recommended) or "nllb"
+      TRANSLATOR_TYPE: ${TRANSLATOR_TYPE:-tower}
+      # Tower settings (medical-optimized, default)
+      TOWER_MODEL_NAME: ${TOWER_MODEL_NAME:-auto}
+      TOWER_FALLBACK_MODEL: ${TOWER_FALLBACK_MODEL:-auto}
+      TOWER_DEVICE: ${TOWER_DEVICE:-auto}
+      TOWER_MAX_LENGTH: ${TOWER_MAX_LENGTH:-1024}
+      TOWER_LOAD_IN_4BIT: ${TOWER_LOAD_IN_4BIT:-true}
+      TOWER_USE_FLASH_ATTENTION: ${TOWER_USE_FLASH_ATTENTION:-true}
+      # NLLB settings (legacy fallback)
+      NLLB_MODEL_NAME: ${NLLB_MODEL_NAME:-auto}
+      NLLB_DEVICE: ${NLLB_DEVICE:-auto}
       NLLB_MAX_LENGTH: ${NLLB_MAX_LENGTH:-512}
       ENABLE_SPAN_BACKTRANSLATION: ${ENABLE_SPAN_BACKTRANSLATION:-true}
       NORMALIZATION_RULES_PATH: ${NORMALIZATION_RULES_PATH:-/app/data/normalization/es_ar.yml}
@@ -26,15 +35,21 @@ services:
       HPO_DOWNLOAD_URL: ${HPO_DOWNLOAD_URL:-https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo}
       AUDIT_DATABASE_URL: ${AUDIT_DATABASE_URL:-postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit}
       STORE_REQUESTS: ${STORE_REQUESTS:-true}
-      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - hf_cache:/root/.cache/huggingface
     depends_on:
       - redis
       - audit-db
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   audit-db:
     image: postgres:15-alpine
@@ -59,3 +74,6 @@ services:
       - "${WEB_PORT:-3000}:80"
     depends_on:
       - api
+
+volumes:
+  hf_cache:

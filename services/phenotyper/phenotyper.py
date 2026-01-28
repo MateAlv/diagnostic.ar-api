@@ -28,10 +28,10 @@ class Phenotyper:
         hpo_obo_path: str,
         hpo_index_path: str,
         hpo_download_url: str,
-        hpo_es_path: str | None = None,
         spacy_model: str,
         min_confidence: float,
         enable_span_backtranslation: bool,
+        hpo_es_path: str | None = None,
     ) -> None:
         self.hpo_obo_path = hpo_obo_path
         self.hpo_index_path = hpo_index_path

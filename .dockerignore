@@ -1,0 +1,39 @@
+# PostgreSQL data (has root permissions from docker)
+data/audit-db
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+docker-compose*.yml
+
+# Tests
+tests
+.pytest_cache
+.coverage
+htmlcov
+
+# Misc
+*.log
+*.tmp
+.env.local
+.DS_Store
+Makefile

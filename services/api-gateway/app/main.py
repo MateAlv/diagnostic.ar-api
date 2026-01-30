@@ -42,6 +42,7 @@ async def startup_event() -> None:
 async def healthz():
     return {
         "status": "ok",
+        "symptom_extractor": pipeline.symptom_extractor.model if pipeline.symptom_extractor else "disabled",
         "translator_model": pipeline.translator.model_name,
         "phenotyper": pipeline.phenotyper.version,
         "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
@@ -51,23 +52,23 @@ async def healthz():
 @app.get("/info")
 async def info():
     """Detailed information about loaded models and configuration."""
-    translator_info = {
-        "model_name": pipeline.translator.model_name,
-        "type": settings.translator_type,
-    }
-
-    # Add Tower-specific info if available
-    if hasattr(pipeline.translator, "get_model_info"):
-        translator_info.update(pipeline.translator.get_model_info())
-
     return {
         "app_name": settings.app_name,
-        "translator": translator_info,
+        "symptom_extractor": {
+            "enabled": settings.enable_symptom_extraction,
+            "model": pipeline.symptom_extractor.model if pipeline.symptom_extractor else "none",
+            "ollama_url": settings.ollama_url,
+        },
+        "translator": {
+            "model_name": pipeline.translator.model_name,
+            "device": settings.nllb_device,
+        },
         "phenotyper": {
             "version": pipeline.phenotyper.version,
             "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
             "spacy_model": settings.spacy_model,
             "min_confidence": settings.min_confidence,
+            "spanish_hpo_matching": settings.enable_spanish_hpo_matching,
         },
         "cache": {
             "enabled": settings.cache_enabled,
@@ -108,16 +109,18 @@ async def extract_hpo(request: ExtractRequest, http_request: Request):
         raise HTTPException(status_code=500, detail="extraction-failed") from exc
     finally:
         if settings.store_requests:
+            model_info = (response or {}).get("model", {})
             audit_logger.log_request(
                 AuditRecord(
                     request_hash=text_hash,
                     patient_locale=request.patient_locale,
                     text_es_raw=request.text_es,
                     text_es_normalized=normalized_text,
-                    text_en=(response or {}).get("text_en", ""),
+                    symptoms_extracted=(response or {}).get("symptoms_extracted", []),
                     phenotypes=(response or {}).get("phenotypes", []),
-                    model_translation=(response or {}).get("model", {}).get("translation", pipeline.translator.model_name),
-                    model_phenotyper=(response or {}).get("model", {}).get("phenotyper", pipeline.phenotyper.version),
+                    model_symptom_extractor=model_info.get("symptom_extractor", "none"),
+                    model_translator=model_info.get("translator", pipeline.translator.model_name),
+                    model_phenotyper=model_info.get("phenotyper", pipeline.phenotyper.version),
                     cache_hit=cache_hit,
                     duration_ms=duration_ms,
                     error=error_message,

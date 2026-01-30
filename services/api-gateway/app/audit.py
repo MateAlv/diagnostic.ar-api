@@ -17,9 +17,10 @@ class AuditRecord:
     patient_locale: str
     text_es_raw: str
     text_es_normalized: str
-    text_en: str
+    symptoms_extracted: Iterable[str]
     phenotypes: Iterable[dict]
-    model_translation: str
+    model_symptom_extractor: str
+    model_translator: str
     model_phenotyper: str
     cache_hit: bool
     duration_ms: int
@@ -47,9 +48,10 @@ class AuditLogger:
                         patient_locale text,
                         text_es_raw text,
                         text_es_normalized text,
-                        text_en text,
+                        symptoms_extracted jsonb,
                         phenotypes_json jsonb,
-                        model_translation text,
+                        model_symptom_extractor text,
+                        model_translator text,
                         model_phenotyper text,
                         cache_hit boolean,
                         duration_ms integer,
@@ -82,9 +84,10 @@ class AuditLogger:
                         patient_locale,
                         text_es_raw,
                         text_es_normalized,
-                        text_en,
+                        symptoms_extracted,
                         phenotypes_json,
-                        model_translation,
+                        model_symptom_extractor,
+                        model_translator,
                         model_phenotyper,
                         cache_hit,
                         duration_ms,
@@ -93,7 +96,7 @@ class AuditLogger:
                         user_agent
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     );
                     """,
                     (
@@ -102,9 +105,10 @@ class AuditLogger:
                         record.patient_locale,
                         record.text_es_raw,
                         record.text_es_normalized,
-                        record.text_en,
+                        Json(list(record.symptoms_extracted)),
                         Json(list(record.phenotypes)),
-                        record.model_translation,
+                        record.model_symptom_extractor,
+                        record.model_translator,
                         record.model_phenotyper,
                         record.cache_hit,
                         record.duration_ms,

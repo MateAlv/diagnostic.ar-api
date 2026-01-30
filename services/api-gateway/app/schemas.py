@@ -11,7 +11,8 @@ class ExtractRequest(BaseModel):
 
 
 class ModelInfo(BaseModel):
-    translation: str
+    symptom_extractor: str
+    translator: str
     phenotyper: str
 
 
@@ -31,6 +32,6 @@ class PhenotypeItem(BaseModel):
 
 
 class ExtractResponse(BaseModel):
-    text_en: str
+    symptoms_extracted: List[str]
     model: ModelInfo
     phenotypes: List[PhenotypeItem]

@@ -184,6 +184,58 @@ class HpoIndex:
     def label_es(self, hpo_id: str) -> Optional[str]:
         return self.label_es_by_id.get(hpo_id)
 
+    def match_es(self, text: str, fuzzy_cutoff: int = 80) -> Optional[Tuple[str, str, str, str, float]]:
+        """
+        Match Spanish text directly to HPO terms using Spanish labels.
+
+        Args:
+            text: Spanish symptom phrase to match
+            fuzzy_cutoff: Minimum fuzzy match score (0-100)
+
+        Returns:
+            Tuple of (hpo_id, label_en, label_es, match_type, confidence) or None
+        """
+        if not self._label_es_entries:
+            return None
+
+        key = normalize_key_es(text)
+        if not key or len(key) < 3:
+            return None
+
+        # Build Spanish label map on first use
+        if not hasattr(self, "_label_es_map"):
+            self._label_es_map: Dict[str, str] = {}
+            for entry in self._label_es_entries:
+                self._label_es_map[entry["label_es_norm"]] = entry["hpo_id"]
+
+        # Exact match
+        if key in self._label_es_map:
+            hpo_id = self._label_es_map[key]
+            label_en = self.terms_by_id[hpo_id].label if hpo_id in self.terms_by_id else ""
+            label_es = self.label_es_by_id.get(hpo_id, "")
+            return hpo_id, label_en, label_es, "exact_es", 0.95
+
+        # Fuzzy match
+        if not self._label_es_norms:
+            return None
+
+        match = process.extractOne(
+            key,
+            self._label_es_norms,
+            scorer=fuzz.WRatio,
+            score_cutoff=fuzzy_cutoff,
+        )
+        if not match:
+            return None
+
+        matched_key, score, idx = match
+        entry = self._label_es_entries[idx]
+        hpo_id = entry["hpo_id"]
+        label_en = self.terms_by_id[hpo_id].label if hpo_id in self.terms_by_id else ""
+        label_es = entry["label_es"]
+        confidence = 0.5 + (score / 100.0) * 0.40  # Slightly higher confidence for Spanish direct match
+        return hpo_id, label_en, label_es, "fuzzy_es", confidence
+
     def search_es(self, query: str, limit: int = 20) -> List[Dict[str, str]]:
         normalized = normalize_key_es(query)
         if not normalized or not self._label_es_entries:

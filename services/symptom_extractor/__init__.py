@@ -11,37 +11,39 @@ logger = logging.getLogger(__name__)
 # Strict extraction prompt - clinical symptoms/signs only, HPO-style
 EXTRACTION_PROMPT_ES = """Eres un experto en terminología médica y fenotipos clínicos (Human Phenotype Ontology, HPO).
 
-Tu tarea es EXTRAER ÚNICAMENTE síntomas y signos clínicos presentes en el paciente,
-mencionados explícitamente en el texto.
+Tu tarea es EXTRAER TODOS los síntomas y signos clínicos presentes en el paciente,
+mencionados explícitamente en el texto. NO OMITAS NINGUNO.
 
 Reglas obligatorias:
-- Extrae SOLO síntomas o signos clínicos.
+- Extrae TODOS los síntomas o signos clínicos, incluyendo antecedentes.
 - Usa frases clínicas CORTAS y CANÓNICAS (2-6 palabras).
 - No expliques, no reformules, no agregues contexto.
 - No inventes síntomas.
 - Si un síntoma aparece varias veces, inclúyelo UNA sola vez.
-- Si un síntoma tiene una forma específica, NO incluyas la forma genérica
-  (ej.: incluir "vómitos proyectiles" y NO "vómitos").
+- Si un síntoma tiene una forma específica, incluye SOLO la forma específica
+  (ej.: "vómitos proyectiles" NO "vómitos", "cefalea holocraneal" NO "dolor de cabeza").
 
 INCLUIR (ejemplos válidos):
-- cefalea holocraneal
-- fiebre alta
-- vómitos proyectiles
+- cefalea holocraneal, cefalea intensa
+- fiebre alta, fiebre persistente
+- vómitos proyectiles, vómitos en proyectil
 - convulsiones tónico-clónicas generalizadas
 - rigidez de nuca
-- edema bipalpebral
-- edema con fóvea
-- hepatomegalia
-- esplenomegalia
+- pérdida de conocimiento
+- edema bipalpebral, edema con fóvea
+- hepatomegalia, esplenomegalia
 - ictericia escleral
-- dificultad respiratoria
+- dificultad respiratoria, tiraje intercostal
 - cianosis perioral
 - diarrea acuosa
+- dolor abdominal difuso, dolor abdominal tipo cólico
 - pérdida de peso
 - hipotonía muscular
 - retraso del desarrollo psicomotor
 - microcefalia
-- hipoacusia neurosensorial bilateral
+- estrabismo convergente
+- hipoacusia neurosensorial bilateral, sordera neurosensorial
+- hipoglucemia sintomática
 - ataxia de la marcha
 - nistagmo horizontal
 - disartria
@@ -49,7 +51,7 @@ INCLUIR (ejemplos válidos):
 
 NO INCLUIR (ignorar completamente):
 - Datos demográficos: edad, sexo, familiares ("8 años", "masculino", "la madre")
-- Duración o frecuencia: "3 días", "2 minutos", "episodios"
+- Duración o frecuencia aislada: "3 días", "2 minutos", "episodios"
 - Valores numéricos o medidas: "39.5°C", "3 cm", "88%"
 - Localizaciones aisladas sin fenotipo: "cabeza", "cuello", "extremidades"
 - Negaciones explícitas o implícitas: "no presenta", "niega", "sin"
@@ -61,7 +63,7 @@ NO INCLUIR (ignorar completamente):
 Texto médico:
 {text}
 
-Formato de salida OBLIGATORIO:
+Extrae TODOS los síntomas. Formato de salida OBLIGATORIO:
 - Una lista plana
 - Un síntoma por línea
 - Sin numeración
@@ -142,7 +144,7 @@ class SymptomExtractor:
             "stream": False,
             "options": {
                 "temperature": 0.1,  # Low temperature for consistent extraction
-                "num_predict": 1024,  # Max tokens for response
+                "num_predict": 2048,  # Max tokens for response (increased for long symptom lists)
             },
         }
 

@@ -151,7 +151,7 @@ class HpoIndex:
         terms = build_hpo_index(obo, index)
         return cls(terms, label_es_by_id)
 
-    def match(self, text: str, fuzzy_cutoff: int = 75) -> Optional[Tuple[str, str, str, float]]:
+    def match(self, text: str, fuzzy_cutoff: int = 85) -> Optional[Tuple[str, str, str, float]]:
         key = normalize_key(text)
         if not key:
             return None
@@ -172,6 +172,10 @@ class HpoIndex:
             score_cutoff=fuzzy_cutoff,
         )
         if not match:
+            # Log best match below cutoff for debugging
+            debug_match = process.extractOne(key, self.keys, scorer=fuzz.WRatio)
+            if debug_match:
+                logger.info("  match_en REJECTED '%s' → best='%s' score=%s (cutoff=%s)", key, debug_match[0][:40], debug_match[1], fuzzy_cutoff)
             return None
         matched_key, score, _ = match
         hpo_id = self.label_map.get(matched_key) or self.synonym_map.get(matched_key)
@@ -184,7 +188,7 @@ class HpoIndex:
     def label_es(self, hpo_id: str) -> Optional[str]:
         return self.label_es_by_id.get(hpo_id)
 
-    def match_es(self, text: str, fuzzy_cutoff: int = 80) -> Optional[Tuple[str, str, str, str, float]]:
+    def match_es(self, text: str, fuzzy_cutoff: int = 90) -> Optional[Tuple[str, str, str, str, float]]:
         """
         Match Spanish text directly to HPO terms using Spanish labels.
 
@@ -226,6 +230,11 @@ class HpoIndex:
             score_cutoff=fuzzy_cutoff,
         )
         if not match:
+            # Log best match below cutoff for debugging
+            debug_match = process.extractOne(key, self._label_es_norms, scorer=fuzz.WRatio)
+            if debug_match:
+                debug_entry = self._label_es_entries[debug_match[2]]
+                logger.info("  match_es REJECTED '%s' → best='%s' (%s) score=%s (cutoff=%s)", key, debug_match[0][:40], debug_entry["hpo_id"], debug_match[1], fuzzy_cutoff)
             return None
 
         matched_key, score, idx = match

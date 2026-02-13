@@ -8,67 +8,57 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Strict extraction prompt - clinical symptoms/signs only, HPO-style
-EXTRACTION_PROMPT_ES = """Eres un experto en terminología médica y fenotipos clínicos (Human Phenotype Ontology, HPO).
+# Strict extraction prompt - clinical symptoms/signs only, HPO-style atomic
+EXTRACTION_PROMPT_ES = """Eres un experto en terminología HPO (Human Phenotype Ontology).
 
-Tu tarea es EXTRAER TODOS los síntomas y signos clínicos presentes en el paciente,
-mencionados explícitamente en el texto. NO OMITAS NINGUNO.
+TAREA: Extraer TODOS los síntomas y signos clínicos del texto. NO OMITAS NINGUNO.
 
-Reglas obligatorias:
-- Extrae TODOS los síntomas o signos clínicos, incluyendo antecedentes.
-- Usa frases clínicas CORTAS y CANÓNICAS (2-6 palabras).
-- No expliques, no reformules, no agregues contexto.
-- No inventes síntomas.
-- Si un síntoma aparece varias veces, inclúyelo UNA sola vez.
-- Si un síntoma tiene una forma específica, incluye SOLO la forma específica
-  (ej.: "vómitos proyectiles" NO "vómitos", "cefalea holocraneal" NO "dolor de cabeza").
+REGLAS CRÍTICAS:
+1. Un síntoma por línea, ATÓMICO (1-3 palabras, máximo 4 si es imprescindible).
+2. Usa el NOMBRE CLÍNICO CANÓNICO más corto posible.
+3. ELIMINA todo modificador: localización, duración, grado, medida, descripción física.
+4. Si hay dos síntomas unidos por "con"/"y"/"e", listarlos SEPARADOS.
+5. Si existe una forma ESPECÍFICA reconocida, usa esa (ej: "vómitos en proyectil", NO "vómitos").
+6. Incluye antecedentes clínicos del paciente.
+7. NO inventes. NO expliques. NO reformules. SOLO lista.
 
-INCLUIR (ejemplos válidos):
-- cefalea holocraneal, cefalea intensa
-- fiebre alta, fiebre persistente
-- vómitos proyectiles, vómitos en proyectil
-- convulsiones tónico-clónicas generalizadas
-- rigidez de nuca
-- pérdida de conocimiento
-- edema bipalpebral, edema con fóvea
-- hepatomegalia, esplenomegalia
-- ictericia escleral
-- dificultad respiratoria, tiraje intercostal
-- cianosis perioral
-- diarrea acuosa
-- dolor abdominal difuso, dolor abdominal tipo cólico
-- pérdida de peso
-- hipotonía muscular
-- retraso del desarrollo psicomotor
-- microcefalia
-- estrabismo convergente
-- hipoacusia neurosensorial bilateral, sordera neurosensorial
-- hipoglucemia sintomática
-- ataxia de la marcha
-- nistagmo horizontal
-- disartria
-- temblor intencional
+ATOMIZACIÓN — transforma así:
+"hepatomegalia palpable a 3 cm del reborde costal derecho" → hepatomegalia
+"dificultad respiratoria con tiraje intercostal" → dificultad respiratoria + tiraje intercostal (DOS líneas)
+"edema de miembros inferiores con fóvea positiva" → edema de miembros inferiores
+"hipotonía muscular desde el nacimiento" → hipotonía muscular
+"temblor intencional en miembros superiores" → temblor intencional
+"dolor abdominal difuso tipo cólico" → dolor abdominal
+"diarrea acuosa sin sangre" → diarrea
+"sordera neurosensorial bilateral diagnosticada a los 2 años" → sordera neurosensorial
+"convulsiones tónico-clónicas generalizadas de 2 min" → convulsiones tónico-clónicas
+"cefalea intensa holocraneana" → cefalea
+"ictericia escleral leve" → ictericia
+"cianosis perioral" → cianosis
+"edema bipalpebral" → edema palpebral
+"retraso del desarrollo psicomotor" → retraso del desarrollo psicomotor
+"estrabismo convergente" → estrabismo
+"ataxia de la marcha" → ataxia
+"nistagmo horizontal" → nistagmo
+"pérdida de peso de 4 kg en el último mes" → pérdida de peso
+"pérdida de conocimiento" → pérdida de conocimiento
+"hipoglucemia sintomática" → hipoglucemia
+"saturación de oxígeno del 88%" → desaturación de oxígeno
+"fiebre alta persistente de 39.5°C" → fiebre
 
 NO INCLUIR (ignorar completamente):
-- Datos demográficos: edad, sexo, familiares ("8 años", "masculino", "la madre")
-- Duración o frecuencia aislada: "3 días", "2 minutos", "episodios"
-- Valores numéricos o medidas: "39.5°C", "3 cm", "88%"
-- Localizaciones aisladas sin fenotipo: "cabeza", "cuello", "extremidades"
-- Negaciones explícitas o implícitas: "no presenta", "niega", "sin"
-- Diagnósticos o sospechas diagnósticas: "meningitis", "diabetes"
-- Tratamientos o fármacos: "ibuprofeno", "antibióticos"
-- Procedimientos o estudios: "examen físico", "resonancia"
-- Verbos narrativos o relleno clínico: "paciente", "refiere", "presenta", "se observa"
+- Datos demográficos (edad, sexo, familiares)
+- Valores numéricos aislados (39.5°C, 3 cm, 88%, 4 kg)
+- Localizaciones sin fenotipo (cabeza, cuello)
+- Diagnósticos (meningitis, diabetes)
+- Tratamientos y fármacos
+- Procedimientos y estudios
+- Verbos narrativos (presenta, refiere, se observa)
 
 Texto médico:
 {text}
 
-Extrae TODOS los síntomas. Formato de salida OBLIGATORIO:
-- Una lista plana
-- Un síntoma por línea
-- Sin numeración
-- Sin guiones
-- Sin texto adicional"""
+LISTA (un síntoma por línea, sin guiones, sin números):"""
 
 
 class SymptomExtractor:

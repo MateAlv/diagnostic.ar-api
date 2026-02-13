@@ -36,6 +36,13 @@ async def startup_event() -> None:
     logger.info("warming up pipeline")
     pipeline.phenotyper.ensure_ready()
     audit_logger.ensure_table()
+    # Pre-load NLLB translator so first request isn't slow
+    logger.info("pre-loading translator model...")
+    try:
+        pipeline.translator.translate("test", src_lang="spa_Latn", tgt_lang="eng_Latn")
+        logger.info("translator model ready")
+    except Exception as exc:
+        logger.warning("translator warmup failed (will retry on first request): %s", exc)
 
 
 @app.get("/healthz")

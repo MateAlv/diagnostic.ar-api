@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Any, Dict, List, Tuple
 
+from rapidfuzz import fuzz as _fuzz
 from services.symptom_extractor import SymptomExtractor, create_symptom_extractor
 from services.translator.nllb import NllbTranslator
 from services.phenotyper.phenotyper import Phenotyper
@@ -115,11 +116,38 @@ class Pipeline:
         )
 
         if not symptom_en or not symptom_en.strip():
+            logger.warning("  [TR] '%s' → empty translation", symptom_es)
+            return None
+
+        symptom_en = symptom_en.strip()
+        logger.info("  [TR] '%s' → '%s'", symptom_es, symptom_en)
+
+        # Detect NLLB translation failure: if output is mostly the same as input,
+        # it means NLLB couldn't translate the medical term → skip English matching
+        # to avoid garbage fuzzy matches from untranslated Spanish text
+        es_norm = symptom_es.lower().strip()
+        en_norm = symptom_en.lower().strip()
+        # Remove common NLLB artifacts like leading "the", "a", trailing "is"
+        for prefix in ("the ", "a ", "an "):
+            if en_norm.startswith(prefix):
+                en_norm = en_norm[len(prefix):]
+        for suffix in (" is", " are"):
+            if en_norm.endswith(suffix):
+                en_norm = en_norm[: -len(suffix)]
+        en_norm = en_norm.strip()
+        # Check similarity between input and "translated" output
+        translation_similarity = _fuzz.ratio(es_norm, en_norm)
+        if translation_similarity > 70:
+            logger.warning(
+                "  [TR] SKIP '%s' → '%s' (similarity %.0f%%, NLLB failed to translate)",
+                symptom_es, symptom_en, translation_similarity,
+            )
             return None
 
         # Match to HPO
         match = self.phenotyper.hpo_index.match(symptom_en)
         if not match:
+            logger.info("  [TR] '%s' → '%s' → no English HPO match", symptom_es, symptom_en.strip())
             return None
 
         hpo_id, label, match_type, confidence = match
@@ -163,6 +191,8 @@ class Pipeline:
         spanish_matches = 0
         translated_matches = 0
 
+        unmatched = []
+
         for symptom in symptoms:
             if not symptom or len(symptom.strip()) < 3:
                 continue
@@ -174,6 +204,7 @@ class Pipeline:
                 if hpo_id not in results or result["confidence"] > results[hpo_id]["confidence"]:
                     results[hpo_id] = result
                     spanish_matches += 1
+                logger.info("  [ES] '%s' → %s (%s)", symptom, result["hpo_id"], result["label_es"])
                 continue
 
             # Fall back to translation + English match
@@ -183,12 +214,17 @@ class Pipeline:
                 if hpo_id not in results or result["confidence"] > results[hpo_id]["confidence"]:
                     results[hpo_id] = result
                     translated_matches += 1
+                logger.info("  [EN] '%s' → '%s' → %s (%s)", symptom, result["span_en"], result["hpo_id"], result["label"])
+            else:
+                unmatched.append(symptom)
+                logger.warning("  [--] '%s' → no HPO match", symptom)
 
         logger.info(
-            "Matched %d HPO terms (%d Spanish direct, %d via translation)",
+            "Matched %d HPO terms (%d Spanish, %d translated, %d unmatched)",
             len(results),
             spanish_matches,
             translated_matches,
+            len(unmatched),
         )
 
         return symptoms, list(results.values())

@@ -17,31 +17,31 @@ export TEST_MEDICAL_TEXT
 API_URL ?= http://localhost:8000
 
 test:
-	@echo "🧪 Testing HPO extraction with comprehensive Spanish medical text..."
+	@echo "Testing HPO extraction with comprehensive Spanish medical text..."
 	@echo ""
-	@echo "📝 Input text:"
+	@echo "Input text:"
 	@echo "$$TEST_MEDICAL_TEXT" | fold -s -w 100
 	@echo ""
-	@echo "🔄 Sending request to $(API_URL)/extract-hpo..."
+	@echo "Sending request to $(API_URL)/extract-hpo..."
 	@echo ""
-	@curl -sf -X POST "$(API_URL)/extract-hpo" \
+	@curl -sf --max-time 120 -X POST "$(API_URL)/extract-hpo" \
 		-H "Content-Type: application/json" \
 		-d "{\"text_es\": \"$$TEST_MEDICAL_TEXT\", \"patient_locale\": \"es-AR\"}" | \
-		jq '.' || (echo "❌ Request failed. Is the API running? Try: make healthz" && exit 1)
+		jq '.' || (echo "❌ Request failed or timed out. Is the API running? Try: make healthz" && exit 1)
 
 test-quick:
-	@echo "🧪 Quick test with short medical text..."
+	@echo "Quick test with short medical text..."
 	@curl -sf -X POST "$(API_URL)/extract-hpo" \
 		-H "Content-Type: application/json" \
 		-d '{"text_es": "Paciente con fiebre alta, convulsiones, cefalea intensa y vómitos. Presenta ictericia, hepatomegalia y dificultad respiratoria.", "patient_locale": "es-AR"}' | \
 		jq '.' || (echo "❌ Request failed. Is the API running? Try: make healthz" && exit 1)
 
 info:
-	@echo "ℹ️  API Info:"
+	@echo "API Info:"
 	@curl -sf "$(API_URL)/info" | jq '.' || (echo "❌ Request failed. Is the API running?" && exit 1)
 
 healthz:
-	@echo "🏥 Checking API health at $(API_URL)..."
+	@echo "Checking API health at $(API_URL)..."
 	@curl -sf "$(API_URL)/healthz" | jq '.' && echo "✅ API is healthy" || echo "❌ API is not responding at $(API_URL)"
 
 up:
@@ -54,7 +54,7 @@ logs:
 	docker compose logs -f api
 
 logs-diagnosticar:
-	@echo "📋 Latest extraction logs (DB only, terminal access)"
+	@echo "Latest extraction logs (DB only, terminal access)"
 	@docker compose exec -T audit-db psql \
 		-U $${AUDIT_DB_USER:-diagnostic_audit} \
 		-d $${AUDIT_DB_NAME:-diagnostic_audit} \

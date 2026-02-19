@@ -32,7 +32,7 @@ services:
       AUDIT_DATABASE_URL: ${AUDIT_DATABASE_URL:-postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit}
       STORE_REQUESTS: ${STORE_REQUESTS:-true}
     ports:
-      - "8000:8000"
+      - "${API_BIND_IP:-0.0.0.0}:${API_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - hf_cache:/root/.cache/huggingface
@@ -71,7 +71,7 @@ services:
       GENPHENIA_DATA_DIR: /app/data
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
     ports:
-      - "18020:18020"
+      - "${GENPHENAI_BIND_IP:-0.0.0.0}:${GENPHENAI_PORT:-18020}:18020"
     volumes:
       - ../diagnosticar_tools/data:/app/data:ro
 

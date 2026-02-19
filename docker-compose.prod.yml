@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  api:
+    restart: unless-stopped
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS}
+
+  genphenai:
+    restart: unless-stopped
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS}
+
+  redis:
+    restart: unless-stopped
+
+  audit-db:
+    restart: unless-stopped

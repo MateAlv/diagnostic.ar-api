@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .audit import AuditLogger, AuditRecord
 from .config import settings
@@ -12,6 +16,43 @@ from .logging import configure_logging
 from .pipeline import Pipeline
 from .schemas import ExtractRequest, ExtractResponse
 from .utils import hash_text
+
+# ---------------------------------------------------------------------------
+# Genphenia post-processing (specialist recommendations + confidence)
+# The genphenia scripts live at /app/services/genphenia/ inside the container
+# (copied via `COPY services /app/services` in the Dockerfile). They use bare
+# imports between each other, so we add their directory to sys.path once.
+# ---------------------------------------------------------------------------
+_GENPHENIA_DIR = Path(__file__).parent.parent.parent.parent / "services" / "genphenia"
+
+_recommend_specialties = None
+_confidence_from_distribution = None
+_gene_to_specialties: Optional[Dict[str, Any]] = None
+
+
+def _init_genphenia() -> None:
+    global _recommend_specialties, _confidence_from_distribution, _gene_to_specialties
+    genphenia_path = str(_GENPHENIA_DIR)
+    if genphenia_path not in sys.path:
+        sys.path.insert(0, genphenia_path)
+    try:
+        from specialist_recommendation import (  # type: ignore
+            load_panelapp_gene_to_specialties,
+            recommend_specialties,
+        )
+        from confidence import confidence_from_distribution  # type: ignore
+
+        panelapp_path = _GENPHENIA_DIR / "data" / "panelapp_panels.csv"
+        _gene_to_specialties = load_panelapp_gene_to_specialties(panelapp_path)
+        _recommend_specialties = recommend_specialties
+        _confidence_from_distribution = confidence_from_distribution
+        logging.getLogger("api").info(
+            "genphenia specialties loaded: %d genes mapped", len(_gene_to_specialties)
+        )
+    except Exception as exc:
+        logging.getLogger("api").warning(
+            "genphenia post-processing unavailable: %s", exc
+        )
 
 configure_logging(settings.log_level)
 logger = logging.getLogger("api")
@@ -43,6 +84,8 @@ async def startup_event() -> None:
         logger.info("translator model ready")
     except Exception as exc:
         logger.warning("translator warmup failed (will retry on first request): %s", exc)
+    # Load genphenia specialist/confidence post-processing
+    _init_genphenia()
 
 
 @app.get("/healthz")
@@ -137,3 +180,33 @@ async def extract_hpo(request: ExtractRequest, http_request: Request):
             )
     logger.info("extract completed hash=%s duration_ms=%s", text_hash, duration_ms)
     return response
+
+
+class SpecialtiesRequest(BaseModel):
+    gene_scores: Dict[str, float]
+
+
+@app.post("/specialties")
+async def get_specialties(request: SpecialtiesRequest) -> Dict[str, Any]:
+    """
+    Given a mapping of gene_symbol → score (from GenPhenAI /rank-genes),
+    returns specialist recommendations and model confidence using the
+    genphenia post-processing pipeline.
+    """
+    if not request.gene_scores:
+        raise HTTPException(status_code=422, detail="gene_scores must not be empty")
+
+    if _recommend_specialties is None or _gene_to_specialties is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Specialist recommendation unavailable — genphenia data not loaded",
+        )
+
+    try:
+        specialties = _recommend_specialties(request.gene_scores, _gene_to_specialties)
+        confidence = _confidence_from_distribution(request.gene_scores) if _confidence_from_distribution else None
+    except Exception as exc:
+        logger.warning("specialties computation failed: %s", exc)
+        raise HTTPException(status_code=500, detail="specialties-failed") from exc
+
+    return {"specialties": specialties, "confidence": confidence}

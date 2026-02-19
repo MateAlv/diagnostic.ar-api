@@ -63,6 +63,18 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
+  genphenai:
+    build:
+      context: .
+      dockerfile: services/genphenai/Dockerfile
+    environment:
+      GENPHENIA_DATA_DIR: /app/data
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    ports:
+      - "18020:18020"
+    volumes:
+      - ../diagnosticar_tools/data:/app/data:ro
+
   web:
     build:
       context: ./web

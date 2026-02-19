@@ -151,7 +151,7 @@ class HpoIndex:
         terms = build_hpo_index(obo, index)
         return cls(terms, label_es_by_id)
 
-    def match(self, text: str, fuzzy_cutoff: int = 85) -> Optional[Tuple[str, str, str, float]]:
+    def match(self, text: str, fuzzy_cutoff: int = 88) -> Optional[Tuple[str, str, str, float]]:
         key = normalize_key(text)
         if not key:
             return None

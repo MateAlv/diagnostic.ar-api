@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install Python 3.11 and dependencies
-RUN apt-get update \
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99disable-sandbox \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-venv \

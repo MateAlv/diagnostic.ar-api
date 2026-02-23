@@ -3,13 +3,6 @@
 .env.local
 .env.prod
 
-# Data directories (large files)
-data/hpo/hp.obo
-data/hpo/hpo_index.json
-data/hpo/hp-es.json
-data/hpo/*.tsv
-data/audit-db/
-
 # Python
 __pycache__/
 *.py[codz]
@@ -21,3 +14,6 @@ build/
 
 # HuggingFace cache
 .cache/
+
+# Postgres data dir (Docker volume — never commit)
+data/audit-db/

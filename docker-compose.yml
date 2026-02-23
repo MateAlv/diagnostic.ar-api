@@ -69,11 +69,17 @@ services:
       dockerfile: services/genphenai/Dockerfile
     environment:
       GENPHENIA_DATA_DIR: /app/data
+      GENPHENIA_INFERENCE_URL: ${GENPHENIA_INFERENCE_URL:-http://host.docker.internal:8002/predict}
+      GENPHENIA_INFERENCE_TIMEOUT_SECONDS: ${GENPHENIA_INFERENCE_TIMEOUT_SECONDS:-30}
+      GENPHENIA_POSTPROCESS_TOP_K: ${GENPHENIA_POSTPROCESS_TOP_K:-200}
+      GENPHENIA_INFERENCE_MAX_TOP_K: ${GENPHENIA_INFERENCE_MAX_TOP_K:-5229}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
     ports:
       - "${GENPHENAI_BIND_IP:-0.0.0.0}:${GENPHENAI_PORT:-18020}:18020"
     volumes:
       - ../diagnosticar_tools/data:/app/data:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   web:
     build:

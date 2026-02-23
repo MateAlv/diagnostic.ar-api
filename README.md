@@ -10,6 +10,7 @@ docker compose up --build
 
 - API: `http://localhost:8000`
 - Web UI: `http://localhost:${WEB_PORT}` (default in `.env` is `3001`)
+- GenPhenAI gateway: `http://localhost:18020`
 
 GPU is enabled by default in `docker-compose.yml` for this repo.
 Local settings are in `.env` (created for this repo). Adjust if needed.
@@ -61,6 +62,21 @@ curl -s http://localhost:8000/extract-hpo \
   -d '{"text_es":"Paciente con fiebre y convulsiones nocturnas.","patient_locale":"es-AR"}' | jq
 ```
 
+### Rank Genes (GenPhenia inference-backed)
+```
+POST /rank-genes
+Content-Type: application/json
+
+{
+  "hpo_ids": ["HP:0001530", "HP:0000938"],
+  "top_k": 10
+}
+```
+
+The `genphenai` service proxies this request to `GENPHENIA_INFERENCE_URL`
+(default: `http://host.docker.internal:8002/predict`) and returns the same
+schema the frontend already consumes (`results`, `specialties`, `confidence`).
+
 ## Output
 The response includes:
 - `text_en` translation
@@ -76,6 +92,9 @@ Key settings:
 - `MIN_CONFIDENCE`: filter threshold
 - `CACHE_TTL_SECONDS`: Redis TTL
 - `ENABLE_SPAN_BACKTRANSLATION`: toggles best-effort ES span alignment
+- `GENPHENIA_INFERENCE_URL`: URL of the running GenPhenia inference API (`/predict`)
+- `GENPHENIA_POSTPROCESS_TOP_K`: internal top-k requested to compute specialties/confidence
+- `GENPHENIA_INFERENCE_MAX_TOP_K`: hard cap for upstream `top_k` (default `5229`)
 
 HPO data is downloaded on first startup into `data/hpo/hp.obo`, and an index is built at `data/hpo/hpo_index.json`.
 

@@ -1,4 +1,4 @@
-.PHONY: logs-diagnosticar test test-quick info healthz up down logs
+.PHONY: logs-diagnosticar test test-quick test-genphenai info healthz healthz-genphenai up down logs
 
 # Rich Spanish medical text with many detectable HPO symptoms
 define TEST_MEDICAL_TEXT
@@ -43,6 +43,16 @@ info:
 healthz:
 	@echo "Checking API health at $(API_URL)..."
 	@curl -sf "$(API_URL)/healthz" | jq '.' && echo "✅ API is healthy" || echo "❌ API is not responding at $(API_URL)"
+
+test-genphenai:
+	@echo "Testing GenPhenAI gene ranking at http://localhost:18020/rank-genes..."
+	@curl -sf -X POST http://localhost:18020/rank-genes \
+		-H "Content-Type: application/json" \
+		-d '{"hpo_ids":["HP:0001250","HP:0000118","HP:0001251","HP:0001252","HP:0000252"],"top_k":10}' | \
+		jq '.' || (echo "❌ Request failed. Check: docker compose logs genphenai" && exit 1)
+
+healthz-genphenai:
+	@curl -sf http://localhost:18020/healthz | jq '.'
 
 up:
 	docker compose up -d

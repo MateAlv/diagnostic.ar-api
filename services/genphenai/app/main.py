@@ -159,9 +159,10 @@ async def rank_genes(request: RankRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Service not ready — HTTP client not initialized")
 
     input_count = len(request.hpo_ids)
-    inference_top_k = max(request.top_k, _POSTPROCESS_TOP_K)
-    inference_top_k = min(inference_top_k, _INFERENCE_MAX_TOP_K)
-    inference_payload = {"hpo_ids": request.hpo_ids, "top_k": inference_top_k}
+    # Always fetch the full distribution so confidence_from_distribution and
+    # recommend_specialties operate on all 5229 genes, not just the user's top_k.
+    # The visible results are sliced to request.top_k below.
+    inference_payload = {"hpo_ids": request.hpo_ids, "top_k": _INFERENCE_MAX_TOP_K}
 
     try:
         inference_response = await _http_client.post(_INFERENCE_URL, json=inference_payload)

@@ -63,13 +63,26 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
+  genphenia-inference:
+    build:
+      context: ../genphenia_inference
+      dockerfile: Dockerfile
+    environment:
+      GENPHENIA_BUNDLE_DIR: ${GENPHENIA_BUNDLE_DIR:-/lucai/diagnostic.ar/genphenia_inference}
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - ${GENPHENIA_BUNDLE_DIR:-/lucai/diagnostic.ar/genphenia_inference}:${GENPHENIA_BUNDLE_DIR:-/lucai/diagnostic.ar/genphenia_inference}:ro
+      - ${GENPHENIA_EMBEDDINGS_DIR:-/home/gcolangelo/GraPhens/data}:${GENPHENIA_EMBEDDINGS_DIR:-/home/gcolangelo/GraPhens/data}:ro
+    restart: unless-stopped
+
   genphenai:
     build:
       context: .
       dockerfile: services/genphenai/Dockerfile
     environment:
       GENPHENIA_DATA_DIR: /app/data
-      GENPHENIA_INFERENCE_URL: ${GENPHENIA_INFERENCE_URL:-http://host.docker.internal:8002/predict}
+      GENPHENIA_INFERENCE_URL: ${GENPHENIA_INFERENCE_URL:-http://genphenia-inference:8002/predict}
       GENPHENIA_INFERENCE_TIMEOUT_SECONDS: ${GENPHENIA_INFERENCE_TIMEOUT_SECONDS:-30}
       GENPHENIA_POSTPROCESS_TOP_K: ${GENPHENIA_POSTPROCESS_TOP_K:-200}
       GENPHENIA_INFERENCE_MAX_TOP_K: ${GENPHENIA_INFERENCE_MAX_TOP_K:-5229}
@@ -78,8 +91,8 @@ services:
       - "${GENPHENAI_BIND_IP:-0.0.0.0}:${GENPHENAI_PORT:-18020}:18020"
     volumes:
       - ../diagnosticar_tools/data:/app/data:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - genphenia-inference
 
   web:
     build:

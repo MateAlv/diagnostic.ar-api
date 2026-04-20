@@ -96,7 +96,7 @@ async def shutdown() -> None:
 # ---------------------------------------------------------------------------
 class RankRequest(BaseModel):
     hpo_ids: List[str] = Field(..., min_length=1, description="Patient HPO IDs")
-    top_k: int = Field(10, ge=1, le=200)
+    top_k: int = Field(50, ge=1, le=_INFERENCE_MAX_TOP_K)
 
 
 # ---------------------------------------------------------------------------

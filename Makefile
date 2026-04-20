@@ -55,6 +55,7 @@ healthz-genphenai:
 	@curl -sf http://localhost:18020/healthz | jq '.'
 
 up:
+	docker compose build api genphenai
 	docker compose up -d
 
 down:

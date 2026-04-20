@@ -64,6 +64,7 @@ services:
     restart: unless-stopped
 
   genphenia-inference:
+    image: diagnosticar-api-genphenia-inference
     build:
       context: ../genphenia_inference
       dockerfile: Dockerfile

@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
 
   genphenia-inference:
-    image: diagnosticar-api-genphenia-inference
+    profiles: ["dev"]
     build:
       context: ../genphenia_inference
       dockerfile: Dockerfile
@@ -92,8 +92,6 @@ services:
       - "${GENPHENAI_BIND_IP:-0.0.0.0}:${GENPHENAI_PORT:-18020}:18020"
     volumes:
       - ../diagnosticar_tools/data:/app/data:ro
-    depends_on:
-      - genphenia-inference
 
   web:
     build:

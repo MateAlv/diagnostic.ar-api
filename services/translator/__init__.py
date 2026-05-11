@@ -14,8 +14,10 @@ class Translator(Protocol):
 
 
 from .nllb import NllbTranslator
+from .ollama import OllamaTranslator
 
 __all__ = [
     "Translator",
     "NllbTranslator",
+    "OllamaTranslator",
 ]

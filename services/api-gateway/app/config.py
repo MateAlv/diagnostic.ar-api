@@ -53,10 +53,8 @@ class Settings(BaseSettings):
     # Direct Spanish HPO matching (before translation)
     enable_spanish_hpo_matching: bool = Field(default=True, validation_alias="ENABLE_SPANISH_HPO_MATCHING")
 
-    # NLLB translation settings (for symptoms that don't match Spanish HPO)
-    nllb_model_name: str = Field(default="facebook/nllb-200-1.3B", validation_alias="NLLB_MODEL_NAME")
-    nllb_device: str = Field(default="cuda", validation_alias="NLLB_DEVICE")
-    nllb_max_length: int = Field(default=512, validation_alias="NLLB_MAX_LENGTH")
+    # Ollama translation settings (for symptoms that don't match Spanish HPO)
+    translator_model: str = Field(default="qwen2.5:7b", validation_alias="TRANSLATOR_MODEL")
 
     audit_database_url: str = Field(
         default="postgresql://diagnostic_audit:diagnostic_audit@audit-db:5432/diagnostic_audit",

@@ -20,10 +20,8 @@ services:
       SYMPTOM_EXTRACTOR_MODEL: ${SYMPTOM_EXTRACTOR_MODEL:-qwen2.5:7b}
       # Direct Spanish HPO matching
       ENABLE_SPANISH_HPO_MATCHING: ${ENABLE_SPANISH_HPO_MATCHING:-true}
-      # NLLB settings (for translating unmatched symptoms)
-      NLLB_MODEL_NAME: ${NLLB_MODEL_NAME:-facebook/nllb-200-1.3B}
-      NLLB_DEVICE: ${NLLB_DEVICE:-cuda}
-      NLLB_MAX_LENGTH: ${NLLB_MAX_LENGTH:-512}
+      # Ollama translation settings (for translating unmatched symptoms)
+      TRANSLATOR_MODEL: ${TRANSLATOR_MODEL:-qwen2.5:7b}
       NORMALIZATION_RULES_PATH: ${NORMALIZATION_RULES_PATH:-/app/data/normalization/es_ar.yml}
       HPO_OBO_PATH: ${HPO_OBO_PATH:-/app/data/hpo/hp.obo}
       HPO_INDEX_PATH: ${HPO_INDEX_PATH:-/app/data/hpo/hpo_index.json}
@@ -35,21 +33,12 @@ services:
       - "${API_BIND_IP:-0.0.0.0}:${API_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
-      - hf_cache:/root/.cache/huggingface
     depends_on:
       - redis
       - audit-db
     networks:
       - default
       - llm_net
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
   audit-db:
     image: postgres:15-alpine
     environment:
@@ -104,9 +93,6 @@ services:
       - "${WEB_PORT:-3000}:80"
     depends_on:
       - api
-
-volumes:
-  hf_cache:
 
 networks:
   llm_net:

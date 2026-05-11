@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple
 
 from rapidfuzz import fuzz as _fuzz
 from services.symptom_extractor import SymptomExtractor, create_symptom_extractor
-from services.translator.nllb import NllbTranslator
+from services.translator.ollama import OllamaTranslator
 from services.phenotyper.phenotyper import Phenotyper
 
 from .cache import RedisCache
@@ -33,7 +33,7 @@ class Pipeline:
         self,
         settings: Settings,
         symptom_extractor: SymptomExtractor | None = None,
-        translator: NllbTranslator | None = None,
+        translator: OllamaTranslator | None = None,
         phenotyper: Phenotyper | None = None,
     ) -> None:
         self.settings = settings
@@ -50,11 +50,10 @@ class Pipeline:
                 model=settings.symptom_extractor_model,
             )
 
-        # Translator (NLLB for symptoms that don't match Spanish HPO)
-        self.translator = translator or NllbTranslator(
-            model_name=settings.nllb_model_name,
-            device=settings.nllb_device,
-            max_length=settings.nllb_max_length,
+        # Translator (Ollama for symptoms that don't match Spanish HPO)
+        self.translator = translator or OllamaTranslator(
+            ollama_url=settings.ollama_url,
+            model=settings.translator_model,
         )
 
         # Phenotyper (HPO matching)
@@ -122,12 +121,9 @@ class Pipeline:
         symptom_en = symptom_en.strip()
         logger.info("  [TR] '%s' → '%s'", symptom_es, symptom_en)
 
-        # Detect NLLB translation failure: if output is mostly the same as input,
-        # it means NLLB couldn't translate the medical term → skip English matching
-        # to avoid garbage fuzzy matches from untranslated Spanish text
+        # Skip if the translation looks like a failure (output too similar to Spanish input)
         es_norm = symptom_es.lower().strip()
         en_norm = symptom_en.lower().strip()
-        # Remove common NLLB artifacts like leading "the", "a", trailing "is"
         for prefix in ("the ", "a ", "an "):
             if en_norm.startswith(prefix):
                 en_norm = en_norm[len(prefix):]
@@ -135,11 +131,10 @@ class Pipeline:
             if en_norm.endswith(suffix):
                 en_norm = en_norm[: -len(suffix)]
         en_norm = en_norm.strip()
-        # Check similarity between input and "translated" output
         translation_similarity = _fuzz.ratio(es_norm, en_norm)
         if translation_similarity > 70:
             logger.warning(
-                "  [TR] SKIP '%s' → '%s' (similarity %.0f%%, NLLB failed to translate)",
+                "  [TR] SKIP '%s' → '%s' (similarity %.0f%%, translation likely failed)",
                 symptom_es, symptom_en, translation_similarity,
             )
             return None

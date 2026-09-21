@@ -62,6 +62,22 @@ class Settings(BaseSettings):
     )
     store_requests: bool = Field(default=True, validation_alias="STORE_REQUESTS")
 
+    # Which extractor serves /extract-hpo. Off means the incumbent pipeline,
+    # unchanged. The recognizer calls a paid model, so this stays off until
+    # auth and the limits below are configured.
+    use_recognizer: bool = Field(default=False, validation_alias="USE_RECOGNIZER")
+    recognizer_provider: str = Field(
+        default="claude-cli", validation_alias="RECOGNIZER_PROVIDER"
+    )
+    recognizer_model: str = Field(
+        default="claude-opus-5", validation_alias="RECOGNIZER_MODEL"
+    )
+    # full-text scored 0.676 against 0.588 for sentences, and ran 2.4x faster:
+    # one NER call per document rather than one per sentence.
+    recognizer_text_parser: str = Field(
+        default="full-text", validation_alias="RECOGNIZER_TEXT_PARSER"
+    )
+
     # Access-token verification. The backend signs with the private half of an
     # RSA keypair; only the public half belongs here, so this service can
     # check a token but never issue one.

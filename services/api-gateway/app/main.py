@@ -70,7 +70,14 @@ if settings.cors_origins_list:
         allow_headers=["*"]
     )
 
-pipeline = Pipeline(settings)
+if settings.use_recognizer:
+    from .recognizer_pipeline import RecognizerPipeline
+
+    logger.info("extract-hpo is served by the Spanish symptom recognizer")
+    pipeline = RecognizerPipeline(settings)
+else:
+    pipeline = Pipeline(settings)
+
 audit_logger = AuditLogger(settings.audit_database_url, settings.store_requests)
 
 # Both default to disabled, so this changes nothing until configured.

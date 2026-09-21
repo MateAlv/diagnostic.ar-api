@@ -6,15 +6,17 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import Depends, FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .audit import AuditLogger, AuditRecord
+from .auth import AuthenticatedUser, require_user
 from .config import settings
 from .logging import configure_logging
 from .pipeline import Pipeline
 from .schemas import ExtractRequest, ExtractResponse
+from .throttle import ConcurrencyLimiter, PerIpRateLimiter, client_identifier
 from .utils import hash_text
 
 # ---------------------------------------------------------------------------
@@ -70,6 +72,12 @@ if settings.cors_origins_list:
 
 pipeline = Pipeline(settings)
 audit_logger = AuditLogger(settings.audit_database_url, settings.store_requests)
+
+# Both default to disabled, so this changes nothing until configured.
+extract_rate_limiter = PerIpRateLimiter(settings.rate_limit_per_minute)
+extraction_slots = ConcurrencyLimiter(
+    settings.max_concurrent_extractions, settings.max_extraction_queue
+)
 
 
 @app.on_event("startup")
@@ -134,7 +142,17 @@ async def search_hpo_es(q: str = Query(..., min_length=1), limit: int = Query(20
 
 
 @app.post("/extract-hpo", response_model=ExtractResponse)
-async def extract_hpo(request: ExtractRequest, http_request: Request):
+async def extract_hpo(
+    request: ExtractRequest,
+    http_request: Request,
+    user: AuthenticatedUser | None = Depends(require_user),
+):
+    # Checked before any work: rejecting an over-budget caller should be
+    # cheap, and the cache lookup below is not free.
+    extract_rate_limiter.check(
+        client_identifier(http_request, settings.trusted_proxies_list)
+    )
+
     started = time.time()
     text_hash = hash_text(request.text_es)
     if settings.log_text:
@@ -147,11 +165,22 @@ async def extract_hpo(request: ExtractRequest, http_request: Request):
     cache_hit = False
     duration_ms = 0
     try:
-        response, meta = pipeline.extract_with_meta(
-            request.text_es, request.patient_locale, normalized_text
-        )
+        # Held only around the extraction itself. This is what bounds cost
+        # when extraction calls a paid model: a per-IP limit is evaded with
+        # more addresses, a semaphore is not.
+        with extraction_slots:
+            response, meta = pipeline.extract_with_meta(
+                request.text_es, request.patient_locale, normalized_text
+            )
         cache_hit = bool(meta.get("cache_hit"))
         duration_ms = int(meta.get("duration_ms") or 0)
+    except HTTPException as exc:
+        # Load shedding is a deliberate answer, not a failure: turning a 503
+        # into a 500 would tell the caller to stop retrying rather than to
+        # wait, and would log it as a fault.
+        duration_ms = int((time.time() - started) * 1000)
+        error_message = f"{exc.status_code} {exc.detail}"
+        raise
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         error_message = str(exc)

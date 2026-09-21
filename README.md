@@ -98,6 +98,28 @@ Key settings:
 
 HPO data is downloaded on first startup into `data/hpo/hp.obo`, and an index is built at `data/hpo/hpo_index.json`.
 
+### Refreshing the Spanish symptom names
+
+`label_es` in the `/extract-hpo` response comes from
+`data/hpo/hp-es.json`, built from the official
+[HPO Internationalisation Effort](https://github.com/obophenotype/hpo-translations)
+translations. Unlike `hp.obo`, this file is **not** fetched at startup — it is
+committed, so it has to be refreshed deliberately:
+
+```bash
+python scripts/download_hpo_es.py    # fetch hp-es.tsv, refusing a truncated file
+python scripts/build_hpo_es.py       # rebuild hp-es.json from it
+pytest tests/test_hpo_es_labels.py
+```
+
+Do this whenever `hp.obo` is updated, so the ontology and its Spanish names
+stay in step. `tests/test_hpo_es_labels.py` fails if the committed copy falls
+behind, which is how the previous six-month drift would have been caught.
+
+**`diagnostic.ar-gene-profiles` reads the same upstream file** for the symptom
+names on gene cards. Refresh both together, or the same HPO term will be named
+one way in the wizard and another on a gene card.
+
 ## Why This Approach
 - **Transparent**: spans, offsets, and match method are returned.
 - **Open-source**: no paid APIs or licensed clinical resources.

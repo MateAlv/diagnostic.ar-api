@@ -17,3 +17,6 @@ build/
 
 # Postgres data dir (Docker volume — never commit)
 data/audit-db/
+
+# Local eval virtualenv
+.venv-eval/

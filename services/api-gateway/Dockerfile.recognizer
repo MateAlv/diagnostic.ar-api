@@ -1,0 +1,78 @@
+# syntax=docker/dockerfile:1.7
+#
+# The gateway with /extract-hpo served by the Spanish symptom recognizer.
+#
+# CPU only. The recognizer's LLM is remote and its encoder is small enough for
+# a CPU, so this runs on a node with no GPU. The incumbent's Ollama and NLLB
+# paths are still installed, because search and the health checks are served
+# by the incumbent pipeline, but nothing here calls them for extraction.
+#
+# The recognizer is not on PyPI and its model assets are not in git, so it
+# comes in as a second build context pointing at a checkout that has them:
+#
+#   docker buildx build -f services/api-gateway/Dockerfile.recognizer \
+#     --build-context recognizer=../spanish-symptoms-recognizer \
+#     -t ghcr.io/matealv/diagnosticar-hpo-recognizer:TAG .
+#
+# That checkout needs, beside the code (MateAlv/spanish-symptoms-recognizer):
+#   symptoms_recognizer/mapper/hpo/hp-es.babelon.tsv
+#   symptoms_recognizer/mapper/semantic_model/clinlinker-kb-gp/    (485 MB)
+#   symptoms_recognizer/mapper/hpo/hpo_batches/clinlinker-kb-gp/   (62 MB)
+
+# 3.12: the recognizer pins numpy 2.5, which has no 3.11 wheels; TARS runs 3.12.3.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# The version measured on TARS; the provider shells out to it.
+RUN npm install -g @anthropic-ai/claude-code@2.1.270 && npm cache clean --force
+
+# CPU wheels first, so nothing below pulls the CUDA build back in.
+RUN pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+
+# The recognizer's pins win where the two overlap (pydantic, spacy, httpx,
+# transformers): it is the side that cannot be loosened without re-measuring.
+# Dropped: the CUDA/NVIDIA wheels, and medspacy with its compiled helpers,
+# which only the offline NER training path imports.
+COPY --from=recognizer requirements.txt /tmp/recognizer-requirements.txt
+RUN grep -v -E '^(torch|triton|nvidia-|cuda-|medspacy|PyFastNER|PyRuSH|quicksectx|pysimstring)' \
+        /tmp/recognizer-requirements.txt > /tmp/recognizer-runtime.txt \
+    && pip install -r /tmp/recognizer-runtime.txt
+
+RUN pip install \
+        fastapi==0.111.0 \
+        "uvicorn[standard]==0.30.3" \
+        pydantic-settings==2.4.0 \
+        redis==5.0.7 \
+        rapidfuzz==3.9.6 \
+        "psycopg[binary]==3.2.3" \
+        "PyJWT[crypto]==2.10.1" \
+        https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+RUN useradd --create-home --uid 10001 app
+WORKDIR /app
+
+COPY --from=recognizer --chown=app symptoms_recognizer /opt/recognizer/symptoms_recognizer
+COPY --chown=app services /app/services
+COPY --chown=app services/api-gateway/app /app/app
+COPY --chown=app data /app/data
+COPY --chown=app scripts /app/scripts
+
+ENV PYTHONPATH=/app:/opt/recognizer \
+    HOME=/home/app \
+    USE_RECOGNIZER=true \
+    RECOGNIZER_PROVIDER=claude-cli
+
+USER app
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.recognizer_pipeline import PIPELINE_NAME, RecognizerPipeline
+from app.recognizer_pipeline import PIPELINE_NAME, RecognizerPipeline, credentials_problem
 
 
 class StubExtractor:
@@ -112,3 +112,30 @@ class TestCaching:
         pipeline._extractor = Failing()
         with pytest.raises(RuntimeError):
             pipeline.extract_with_meta("Presenta fiebre")
+
+
+def test_claude_cli_with_no_credential_is_reported(tmp_path):
+    assert "no credential" in credentials_problem("claude-cli", environ={}, home=tmp_path)
+
+
+def test_claude_cli_accepts_a_setup_token_or_a_mounted_file(tmp_path):
+    assert credentials_problem("claude-cli", environ={"CLAUDE_CODE_OAUTH_TOKEN": "x"}, home=tmp_path) is None
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / ".credentials.json").write_text("{}")
+    assert credentials_problem("claude-cli", environ={}, home=tmp_path) is None
+
+
+def test_anthropic_provider_needs_a_key(tmp_path):
+    assert credentials_problem("anthropic", environ={}, home=tmp_path)
+    assert credentials_problem("anthropic", environ={"ANTHROPIC_API_KEY": "k"}, home=tmp_path) is None
+
+
+def test_warm_up_never_raises_and_reports_the_problem(pipeline, monkeypatch):
+    monkeypatch.setattr(
+        "app.recognizer_pipeline.credentials_problem", lambda provider: "no credential"
+    )
+    pipeline._extractor = None
+    pipeline.warm_up()
+    status = pipeline.status()
+    assert status["ready"] is False
+    assert status["error"] == "no credential"

@@ -9,6 +9,7 @@ having more addresses; a semaphore holds regardless of who is calling.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import threading
 import time
@@ -22,6 +23,26 @@ FORWARDED_FOR_HEADER = "x-forwarded-for"
 UNKNOWN_CLIENT = "unknown"
 
 
+def _is_trusted(address: str, trusted_proxies: list[str]) -> bool:
+    """Whether `address` is one of the named proxies, as an IP or a CIDR.
+
+    A CIDR matters on Docker: Traefik's address on the shared network changes
+    whenever its container is recreated, and an exact IP that has gone stale
+    fails silently -- every request then keys on the proxy again.
+    """
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    for entry in trusted_proxies:
+        try:
+            if ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def client_identifier(request: Request, trusted_proxies: list[str]) -> str:
     """The address to attribute a request to.
 
@@ -30,16 +51,18 @@ def client_identifier(request: Request, trusted_proxies: list[str]) -> str:
     one. The real address is in X-Forwarded-For, but that header is caller
     supplied: believing it unconditionally lets anyone pick their own bucket
     and never hit the limit. So it is read only when the peer is a proxy we
-    named.
+    named, and from the right: each proxy appends the address it saw, so the
+    first entry that is not one of ours is the last one a caller could not
+    have written. The leftmost entry is whatever the caller sent.
     """
     peer = request.client.host if request.client else None
 
-    if peer and peer in trusted_proxies:
+    if peer and _is_trusted(peer, trusted_proxies):
         forwarded = request.headers.get(FORWARDED_FOR_HEADER, "")
-        # Leftmost entry is the original client; the rest are intermediaries.
-        original = forwarded.split(",")[0].strip()
-        if original:
-            return original
+        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+        for hop in reversed(hops):
+            if not _is_trusted(hop, trusted_proxies):
+                return hop
 
     return peer or UNKNOWN_CLIENT
 

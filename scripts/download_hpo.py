@@ -3,7 +3,7 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_URL = "https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo"
+DEFAULT_URL = "https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2026-01-08/hp.obo"
 
 
 def download(url: str, dest: Path) -> None:

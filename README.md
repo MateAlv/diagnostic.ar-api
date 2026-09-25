@@ -73,9 +73,21 @@ Content-Type: application/json
 }
 ```
 
-The `genphenai` service proxies this request to `GENPHENIA_INFERENCE_URL`
-(default: `http://host.docker.internal:8002/predict`) and returns the same
-schema the frontend already consumes (`results`, `specialties`, `confidence`).
+The `genphenai` service runs the GenPhenia v3.0 model in process, on the CPU,
+and returns
+the schema the frontend already consumes (`results`, `specialties`,
+`confidence`). HPO IDs the model's release does not know are left out and
+listed in `unknown_hpo_ids`; a request with none it knows is a 422.
+
+The model is a release of `diagnostic.ar-model`, pinned in
+`services/genphenai/model.lock` (see `services/genphenai/model/README.md`).
+Fetch it before building or testing; the tests compare the rankings with what
+production served:
+
+```bash
+services/genphenai/fetch_model.sh
+cd services/genphenai && python -m pytest tests -q
+```
 
 ## Output
 The response includes:
@@ -92,9 +104,8 @@ Key settings:
 - `MIN_CONFIDENCE`: filter threshold
 - `CACHE_TTL_SECONDS`: Redis TTL
 - `ENABLE_SPAN_BACKTRANSLATION`: toggles best-effort ES span alignment
-- `GENPHENIA_INFERENCE_URL`: URL of the running GenPhenia inference API (`/predict`)
-- `GENPHENIA_POSTPROCESS_TOP_K`: internal top-k requested to compute specialties/confidence
-- `GENPHENIA_INFERENCE_MAX_TOP_K`: hard cap for upstream `top_k` (default `5229`)
+- `GENPHENIA_BUNDLE_DIR`: the model bundle (default: the one baked into the image)
+- `GENPHENIA_DATA_DIR`: where `panelapp_panels.csv` is (default: baked in too)
 
 HPO data is downloaded on first startup into `data/hpo/hp.obo`, and an index is built at `data/hpo/hpo_index.json`.
 

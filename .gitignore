@@ -20,3 +20,8 @@ data/audit-db/
 
 # Local eval virtualenv
 .venv-eval/
+
+# The GenPhenia bundle: a diagnostic.ar-model release, fetched by
+# services/genphenai/fetch_model.sh
+services/genphenai/model-dist/
+services/genphenai/model/*/

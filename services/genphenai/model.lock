@@ -1,0 +1,6 @@
+# The GenPhenia bundle /rank-genes serves: a release of MateAlv/diagnostic.ar-model.
+# fetch_model.sh downloads and checks it; the Dockerfile refuses anything else.
+MODEL_REPO=MateAlv/diagnostic.ar-model
+MODEL_TAG=model-v3.0.0
+MODEL_ASSET=genphenia-v3.0.tar.gz
+MODEL_SHA256=2201b7f2868afaf00439f76a6197bcf1d94eccc5ea171173719ca48c517a61c8

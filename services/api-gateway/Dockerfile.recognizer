@@ -33,8 +33,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# The version measured on TARS; the provider shells out to it.
-RUN npm install -g @anthropic-ai/claude-code@2.1.270 && npm cache clean --force
+# The version measured on TARS; the provider shells out to it. npm is only
+# needed to install it, and the npm that ships with Node carries HIGH
+# advisories the release scan rejects, so it leaves the image in this layer.
+# Without npm the CLI cannot update itself, which is what a pinned version wants.
+RUN npm install -g @anthropic-ai/claude-code@2.1.270 && npm cache clean --force \
+    && rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack \
+              /usr/bin/npm /usr/bin/npx /usr/bin/corepack /root/.npm
+ENV DISABLE_AUTOUPDATER=1
 
 # CPU wheels first, so nothing below pulls the CUDA build back in.
 RUN pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu

@@ -7,17 +7,17 @@
 # paths are still installed, because search and the health checks are served
 # by the incumbent pipeline, but nothing here calls them for extraction.
 #
-# The recognizer is not on PyPI and its model assets are not in git, so it
-# comes in as a second build context pointing at a checkout that has them:
+# The recognizer is not on PyPI, so its code comes in as a second build
+# context (MateAlv/spanish-symptoms-recognizer):
 #
 #   docker buildx build -f services/api-gateway/Dockerfile.recognizer \
 #     --build-context recognizer=../spanish-symptoms-recognizer \
-#     -t ghcr.io/matealv/diagnosticar-hpo-recognizer:TAG .
+#     -t diagnosticar-hpo-recognizer:dev .
 #
-# That checkout needs, beside the code (MateAlv/spanish-symptoms-recognizer):
-#   symptoms_recognizer/mapper/hpo/hp-es.babelon.tsv
-#   symptoms_recognizer/mapper/semantic_model/clinlinker-kb-gp/    (485 MB)
-#   symptoms_recognizer/mapper/hpo/hpo_batches/clinlinker-kb-gp/   (62 MB)
+# Its model assets are not in git. They are fetched here at pinned revisions
+# and the HPO embeddings are generated from them, so a build on a laptop and a
+# build in CI produce the same image — the one that was evaluated. Whatever
+# assets the checkout happens to hold are discarded.
 
 # 3.12: the recognizer pins numpy 2.5, which has no 3.11 wheels; TARS runs 3.12.3.
 FROM python:3.12-slim
@@ -48,20 +48,41 @@ RUN grep -v -E '^(torch|triton|nvidia-|cuda-|medspacy|PyFastNER|PyRuSH|quicksect
         /tmp/recognizer-requirements.txt > /tmp/recognizer-runtime.txt \
     && pip install -r /tmp/recognizer-runtime.txt
 
+# Newer than requirements.txt on purpose: the release scan fails on PyJWT
+# 2.10 (CVE-2026-48526, forged-token authentication bypass, in the library
+# that verifies every session here) and on Starlette 0.37.
 RUN pip install \
-        fastapi==0.111.0 \
-        "uvicorn[standard]==0.30.3" \
-        pydantic-settings==2.4.0 \
+        fastapi==0.141.1 \
+        "uvicorn[standard]==0.54.0" \
+        pydantic-settings \
         redis==5.0.7 \
         rapidfuzz==3.9.6 \
         "psycopg[binary]==3.2.3" \
-        "PyJWT[crypto]==2.10.1" \
+        "PyJWT[crypto]==2.15.0" \
         https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# The ClinLinker encoder and the Spanish HPO labels, at the revisions the
+# recognizer was evaluated with on 2026-09-21. Fetched before the code is
+# copied, so a code change does not download 485 MB again.
+ARG CLINLINKER_REVISION=8f914c58a1cbcff43331eb15b101eaa5e5c6920a
+ARG HPO_TRANSLATIONS_COMMIT=69f7f96fba5ae4c1b999028991510088f3480487
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ICB-UMA/ClinLinker-KB-GP', revision='${CLINLINKER_REVISION}', local_dir='/opt/assets/clinlinker-kb-gp', allow_patterns=['*.json', '*.txt', 'pytorch_model.bin'])" \
+    && rm -rf /opt/assets/clinlinker-kb-gp/.cache \
+    && curl -fsSL -o /opt/assets/hp-es.babelon.tsv \
+        "https://raw.githubusercontent.com/obophenotype/hpo-translations/${HPO_TRANSLATIONS_COMMIT}/babelon/hp-es.babelon.tsv"
 
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 
 COPY --from=recognizer --chown=app symptoms_recognizer /opt/recognizer/symptoms_recognizer
+RUN cd /opt/recognizer/symptoms_recognizer/mapper \
+    && rm -rf semantic_model/clinlinker-kb-gp hpo/hpo_batches hpo/hp-es.babelon.tsv \
+    && mkdir -p semantic_model hpo \
+    && cp -r /opt/assets/clinlinker-kb-gp semantic_model/clinlinker-kb-gp \
+    && cp /opt/assets/hp-es.babelon.tsv hpo/hp-es.babelon.tsv \
+    && python hpo_tsv_reader.py \
+    && rm -rf /opt/assets \
+    && chown -R app /opt/recognizer
 COPY --chown=app services /app/services
 COPY --chown=app services/api-gateway/app /app/app
 COPY --chown=app data /app/data

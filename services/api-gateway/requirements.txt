@@ -14,4 +14,4 @@ sentencepiece==0.2.0
 accelerate>=0.33.0
 bitsandbytes>=0.43.0
 psycopg[binary]==3.2.3
-PyJWT[crypto]==2.10.1
+PyJWT[crypto]==2.15.0

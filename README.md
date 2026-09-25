@@ -107,7 +107,7 @@ Key settings:
 - `GENPHENIA_BUNDLE_DIR`: the model bundle (default: the one baked into the image)
 - `GENPHENIA_DATA_DIR`: where `panelapp_panels.csv` is (default: baked in too)
 
-HPO data is downloaded on first startup into `data/hpo/hp.obo`, and an index is built at `data/hpo/hpo_index.json`.
+`data/hpo/hp.obo` is the HPO release `v2026-01-08`, committed; if it is missing, startup downloads that same release (`HPO_DOWNLOAD_URL`), not whatever `master` holds that day. The index is built at `data/hpo/hpo_index.json`.
 
 ## Why This Approach
 - **Transparent**: spans, offsets, and match method are returned.

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         validation_alias="HPO_ES_PATH",
     )
     hpo_download_url: str = Field(
-        default="https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/hp.obo",
+        default="https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2026-01-08/hp.obo",
         validation_alias="HPO_DOWNLOAD_URL",
     )
 

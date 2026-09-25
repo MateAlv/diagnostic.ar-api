@@ -1,20 +1,23 @@
 """GenPhenAI gateway service.
 
-This service exposes ``/rank-genes`` for the diagnostic.ar frontend and delegates
-gene ranking to the real GenPhenia inference API (``POST /predict``).
-It preserves the existing response schema expected by the UI and computes
-specialties/confidence from the returned score distribution.
+This service exposes ``/rank-genes`` for the diagnostic.ar frontend. The
+GenPhenia v3.0 model runs in this process from the bundle under ``model/``,
+exported to ONNX so it needs neither torch nor a GPU. The response keeps the
+schema the UI already consumes, and specialties/confidence are computed from
+the full score distribution.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -25,51 +28,58 @@ logger = logging.getLogger("genphenai")
 # ---------------------------------------------------------------------------
 # Paths / config
 # ---------------------------------------------------------------------------
-_DATA_DIR = Path(os.getenv("GENPHENIA_DATA_DIR", "/app/data"))
+_SERVICE_DIR = Path(__file__).parent.parent  # confidence.py, specialist_recommendation.py, inference_engine/
+_DATA_DIR = Path(os.getenv("GENPHENIA_DATA_DIR", str(_SERVICE_DIR / "data")))
 _PANELAPP_PATH = _DATA_DIR / "panelapp_panels.csv"
+_BUNDLE_DIR = Path(os.getenv("GENPHENIA_BUNDLE_DIR", str(_SERVICE_DIR / "model" / "genphenia-v3.0")))
 _CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
-_INFERENCE_URL = os.getenv("GENPHENIA_INFERENCE_URL", "http://host.docker.internal:8002/predict")
-_INFERENCE_TIMEOUT_SECONDS = float(os.getenv("GENPHENIA_INFERENCE_TIMEOUT_SECONDS", "30"))
 _POSTPROCESS_TOP_K = int(os.getenv("GENPHENIA_POSTPROCESS_TOP_K", "200"))
 _INFERENCE_MAX_TOP_K = int(os.getenv("GENPHENIA_INFERENCE_MAX_TOP_K", "5229"))
 
-# ---------------------------------------------------------------------------
-# The genphenia post-processing scripts are copied next to this file in the
-# Docker image. They import each other with bare names, so we add their
-# directory to sys.path.
-# ---------------------------------------------------------------------------
-_SCRIPTS_DIR = Path(__file__).parent.parent  # /app  (confidence.py, specialist_recommendation.py)
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
+_HPO_ID_RE = re.compile(r"^HP:\d+$")
+
+# The post-processing scripts and the vendored engine import each other with
+# bare names, so their directory goes on sys.path.
+if str(_SERVICE_DIR) not in sys.path:
+    sys.path.insert(0, str(_SERVICE_DIR))
 
 # ---------------------------------------------------------------------------
 # App state
 # ---------------------------------------------------------------------------
-app = FastAPI(title="GenPhenAI", version="0.2.0-inference")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Module-level singletons populated on startup
+_engine = None
 _gene_to_specialties: Optional[Dict[str, Any]] = None
 _recommend_specialties = None
 _confidence_from_distribution = None
-_http_client: Optional[httpx.AsyncClient] = None
+# The engine's preprocessing cache is a plain OrderedDict; requests run in a
+# thread pool, so predictions are serialised. One takes a few milliseconds.
+_predict_lock = threading.Lock()
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    global _gene_to_specialties, _recommend_specialties, _confidence_from_distribution, _http_client
+def load_engine(bundle_dir: Path):
+    from inference_engine.engine import GenpheniaEngine
 
-    _http_client = httpx.AsyncClient(timeout=httpx.Timeout(_INFERENCE_TIMEOUT_SECONDS))
-    logger.info("Configured inference endpoint: %s", _INFERENCE_URL)
+    # The bundle is baked into the image, so there is nothing to hot-reload;
+    # an infinite interval turns off the engine's per-request registry check.
+    return GenpheniaEngine.load(
+        bundle_dir,
+        auto_refresh_seconds=float("inf"),
+        auto_activate_latest=True,
+    )
 
-    # Load genphenia post-processing scripts
+
+def startup() -> None:
+    global _engine, _gene_to_specialties, _recommend_specialties, _confidence_from_distribution
+
+    # Without the model the service has nothing to answer, so this is fatal.
+    _engine = load_engine(_BUNDLE_DIR)
+    logger.info(
+        "GenPhenia %s loaded from %s: %d genes",
+        _engine.record.model_version,
+        _BUNDLE_DIR,
+        len(_engine.genes),
+    )
+
     try:
         from specialist_recommendation import (  # type: ignore
             load_panelapp_gene_to_specialties,
@@ -85,10 +95,21 @@ async def startup() -> None:
         logger.warning("genphenia post-processing unavailable: %s", exc)
 
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    if _http_client is not None:
-        await _http_client.aclose()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    startup()
+    yield
+
+
+app = FastAPI(title="GenPhenAI", version="0.3.0-in-process", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -102,40 +123,34 @@ class RankRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _coerce_score_map(payload: Any) -> Dict[str, float]:
-    """Normalize inference payload into ``{gene_symbol: probability}``."""
-    if not isinstance(payload, dict):
-        raise ValueError("Inference response is not a JSON object")
+def split_known_ids(engine, hpo_ids: List[str]) -> tuple[List[str], List[str]]:
+    """Separate the IDs the model's HPO release knows from the ones it does not.
 
-    # Current inference API default shape:
-    # {"GENE1": 0.12, "GENE2": 0.08, ...}
-    if payload and all(isinstance(v, (int, float)) for v in payload.values()):
-        score_map: Dict[str, float] = {}
-        for gene, raw_score in payload.items():
-            gene_symbol = str(gene).strip().upper()
-            if not gene_symbol:
-                continue
-            score_map[gene_symbol] = float(raw_score)
-        if score_map:
-            return score_map
+    The search index can be on a newer HPO release than the model. A term the
+    model has never seen used to fail the whole ranking; it is now left out
+    and reported, and only a request with nothing usable is rejected.
+    """
+    from inference_engine.preprocess import normalize_hpo_id
 
-    # Compatibility fallback in case inference is asked for full payload:
-    # {"top_predictions": [{"gene": "...", "probability": ...}, ...], ...}
-    top_predictions = payload.get("top_predictions")
-    if isinstance(top_predictions, list):
-        score_map = {}
-        for item in top_predictions:
-            if not isinstance(item, dict):
-                continue
-            gene_symbol = str(item.get("gene", "")).strip().upper()
-            probability = item.get("probability")
-            if not gene_symbol or not isinstance(probability, (int, float)):
-                continue
-            score_map[gene_symbol] = float(probability)
-        if score_map:
-            return score_map
+    known_ids = engine.preprocessor.hpo_dag.id_to_idx
+    known: List[str] = []
+    unknown: List[str] = []
+    for raw_id in hpo_ids:
+        normalized = normalize_hpo_id(raw_id)
+        if not _HPO_ID_RE.match(normalized):
+            raise HTTPException(status_code=422, detail=f"Invalid HPO ID: {raw_id!r}")
+        (known if normalized in known_ids else unknown).append(normalized)
+    return known, unknown
 
-    raise ValueError("Inference response does not contain gene probability scores")
+
+def predict_scores(engine, hpo_ids: List[str]) -> Dict[str, float]:
+    """``{gene_symbol: probability}`` over every gene the model outputs."""
+    with _predict_lock:
+        result = engine.predict(hpo_ids=hpo_ids, top_k=_INFERENCE_MAX_TOP_K)
+    return {
+        str(item["gene"]).strip().upper(): float(item["probability"])
+        for item in result["top_predictions"]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +159,10 @@ def _coerce_score_map(payload: Any) -> Dict[str, float]:
 @app.get("/healthz")
 async def healthz() -> Dict[str, Any]:
     return {
-        "status": "ok",
-        "mode": "inference-http",
-        "inference_url": _INFERENCE_URL,
+        "status": "ok" if _engine is not None else "loading",
+        "mode": "in-process",
+        "model_version": _engine.record.model_version if _engine is not None else None,
+        "checkpoint_sha256": _engine.record.checkpoint_sha256 if _engine is not None else None,
         "postprocess_top_k": _POSTPROCESS_TOP_K,
         "inference_max_top_k": _INFERENCE_MAX_TOP_K,
         "specialties_available": _gene_to_specialties is not None,
@@ -154,44 +170,31 @@ async def healthz() -> Dict[str, Any]:
 
 
 @app.post("/rank-genes")
-async def rank_genes(request: RankRequest) -> Dict[str, Any]:
-    if _http_client is None:
-        raise HTTPException(status_code=503, detail="Service not ready — HTTP client not initialized")
+def rank_genes(request: RankRequest) -> Dict[str, Any]:
+    if _engine is None:
+        raise HTTPException(status_code=503, detail="Service not ready — model not loaded")
+
+    known_ids, unknown_ids = split_known_ids(_engine, request.hpo_ids)
+    if unknown_ids:
+        logger.info("ignoring HPO IDs unknown to the model: %s", ", ".join(unknown_ids))
+    if not known_ids:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "no-known-hpo-ids", "unknown_hpo_ids": unknown_ids},
+        )
 
     input_count = len(request.hpo_ids)
-    # Always fetch the full distribution so confidence_from_distribution and
+    # The full distribution, so confidence_from_distribution and
     # recommend_specialties operate on all 5229 genes, not just the user's top_k.
     # The visible results are sliced to request.top_k below.
-    inference_payload = {"hpo_ids": request.hpo_ids, "top_k": _INFERENCE_MAX_TOP_K}
+    score_map = predict_scores(_engine, known_ids)
 
-    try:
-        inference_response = await _http_client.post(_INFERENCE_URL, json=inference_payload)
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail="genphenia-inference-timeout") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="genphenia-inference-unreachable") from exc
-
-    if inference_response.status_code >= 400:
-        detail: Any = "genphenia-inference-error"
-        try:
-            payload = inference_response.json()
-            detail = payload.get("detail", payload)
-        except Exception:
-            detail = inference_response.text or detail
-        raise HTTPException(status_code=502, detail=detail)
-
-    try:
-        score_map = _coerce_score_map(inference_response.json())
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    # Sort genes by probability descending, take user top_k for visible results
     sorted_genes = sorted(score_map.items(), key=lambda x: x[1], reverse=True)
     top_genes = sorted_genes[: request.top_k]
 
     results = [
         {
-            "gene_id": gene_symbol,       # no NCBI ID in inference payload — use symbol
+            "gene_id": gene_symbol,       # the model has no NCBI IDs — use the symbol
             "gene_symbol": gene_symbol,
             "score": round(score, 6),
             "matched_hpo_ids": [],        # model does not return per-gene matched HPOs
@@ -222,5 +225,6 @@ async def rank_genes(request: RankRequest) -> Dict[str, Any]:
         "specialties": specialties,
         "confidence": confidence,
         "input_hpo_count": input_count,
+        "unknown_hpo_ids": unknown_ids,
         "beta": False,
     }

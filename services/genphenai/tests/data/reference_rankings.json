@@ -1,0 +1,199 @@
+{
+ "hypotonia_speech_delay_cafe_au_lait": {
+  "hpo_ids": [
+   "HP:0001252",
+   "HP:0000750",
+   "HP:0000957"
+  ],
+  "top_genes": [
+   [
+    "DHX30",
+    0.207255
+   ],
+   [
+    "WASF1",
+    0.17051
+   ],
+   [
+    "CHD3",
+    0.13296
+   ],
+   [
+    "KDM6B",
+    0.113656
+   ],
+   [
+    "COPB1",
+    0.064211
+   ],
+   [
+    "HEPACAM",
+    0.048101
+   ],
+   [
+    "BPTF",
+    0.040785
+   ],
+   [
+    "SPRED1",
+    0.033885
+   ],
+   [
+    "CHD8",
+    0.019893
+   ],
+   [
+    "H4C5",
+    0.019655
+   ]
+  ],
+  "confidence": 0.6765022776289443,
+  "specialty_histogram": {
+   "Developmental disorders": 30,
+   "Neurology": 28,
+   "Cardiology": 15,
+   "Endocrinology": 8,
+   "Dermatology": 5,
+   "Musculoskeletal": 5,
+   "Metabolic": 4,
+   "Cancer": 3,
+   "Growth disorders": 3,
+   "Ophthalmology": 2,
+   "Audiology": 2,
+   "Immunology": 2,
+   "Renal": 1,
+   "Haematology": 1,
+   "Viral research": 1
+  }
+ },
+ "neurofibromatosis_like": {
+  "hpo_ids": [
+   "HP:0000957",
+   "HP:0001067",
+   "HP:0009737",
+   "HP:0000316"
+  ],
+  "top_genes": [
+   [
+    "NF1",
+    0.660834
+   ],
+   [
+    "SPRED1",
+    0.332595
+   ],
+   [
+    "NF2",
+    0.004649
+   ],
+   [
+    "MLH1",
+    0.001643
+   ],
+   [
+    "AKT1",
+    0.000144
+   ],
+   [
+    "SUFU",
+    0.000042
+   ],
+   [
+    "BAP1",
+    0.000037
+   ],
+   [
+    "SMARCB1",
+    0.000011
+   ],
+   [
+    "PIK3CA",
+    0.00001
+   ],
+   [
+    "HRAS",
+    0.000006
+   ]
+  ],
+  "confidence": 0.9207922178329855,
+  "specialty_histogram": {
+   "Cancer": 2,
+   "Cardiology": 2,
+   "Dermatology": 2,
+   "Developmental disorders": 2,
+   "Endocrinology": 2,
+   "Neurology": 2,
+   "Audiology": 1,
+   "Haematology": 1,
+   "Musculoskeletal": 1,
+   "Respiratory": 1
+  }
+ },
+ "seizures_microcephaly_id": {
+  "hpo_ids": [
+   "HP:0001250",
+   "HP:0000252",
+   "HP:0001249",
+   "HP:0001263",
+   "HP:0002360"
+  ],
+  "top_genes": [
+   [
+    "NSUN6",
+    0.596334
+   ],
+   [
+    "MED23",
+    0.098252
+   ],
+   [
+    "CSNK2A1",
+    0.038445
+   ],
+   [
+    "TDP2",
+    0.02325
+   ],
+   [
+    "ANK3",
+    0.023158
+   ],
+   [
+    "EIF3F",
+    0.015622
+   ],
+   [
+    "PIDD1",
+    0.014715
+   ],
+   [
+    "ZBTB18",
+    0.012433
+   ],
+   [
+    "PRODH",
+    0.009782
+   ],
+   [
+    "NACC1",
+    0.00939
+   ]
+  ],
+  "confidence": 0.7450790614785254,
+  "specialty_histogram": {
+   "Developmental disorders": 61,
+   "Neurology": 61,
+   "Cardiology": 39,
+   "Metabolic": 12,
+   "Musculoskeletal": 10,
+   "Ophthalmology": 7,
+   "Renal": 3,
+   "Gastrohepatology": 2,
+   "Dermatology": 2,
+   "Endocrinology": 2,
+   "Growth disorders": 1,
+   "Haematology": 1,
+   "Viral research": 1
+  }
+ }
+}

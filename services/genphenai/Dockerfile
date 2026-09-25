@@ -1,21 +1,42 @@
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
 COPY services/genphenai/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install -r /app/requirements.txt
 
-# App code
-COPY services/genphenai/app /app/app
+RUN useradd --create-home --uid 10001 app
 
-# Post-processing scripts (copied from diagnosticar_tools)
-COPY services/genphenai/confidence.py /app/confidence.py
-COPY services/genphenai/specialist_recommendation.py /app/specialist_recommendation.py
+# The model bundle first: it is the large, rarely changing layer. It is a
+# release of diagnostic.ar-model, fetched by fetch_model.sh; only the tarball
+# pinned in model.lock gets in.
+RUN --mount=type=bind,source=services/genphenai/model.lock,target=/tmp/model.lock \
+    --mount=type=bind,source=services/genphenai/model-dist,target=/tmp/model-dist \
+    . /tmp/model.lock \
+    && echo "$MODEL_SHA256  /tmp/model-dist/$MODEL_ASSET" | sha256sum -c \
+    && mkdir -p /app/model \
+    && tar -xzf "/tmp/model-dist/$MODEL_ASSET" -C /app/model \
+    && chown -R app /app/model
+COPY --chown=app services/genphenai/data /app/data
+COPY --chown=app services/genphenai/inference_engine /app/inference_engine
+COPY --chown=app services/genphenai/confidence.py services/genphenai/specialist_recommendation.py /app/
+COPY --chown=app services/genphenai/app /app/app
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    GENPHENIA_BUNDLE_DIR=/app/model/genphenia-v3.0 \
+    GENPHENIA_DATA_DIR=/app/data
+
+USER app
+
+# Loading the bundle once writes its checkpoint registry, so startup does not
+# hash the checkpoint again, and a broken bundle fails the build, not a request.
+RUN python -c "from app.main import load_engine; import os; load_engine(os.environ['GENPHENIA_BUNDLE_DIR'])"
 
 EXPOSE 18020
 

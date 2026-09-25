@@ -70,13 +70,18 @@ if settings.cors_origins_list:
         allow_headers=["*"]
     )
 
+# The incumbent always serves search and the health checks; the flag only
+# decides who answers /extract-hpo. Swapping the whole pipeline left search,
+# /info, /healthz, startup and the audit record calling attributes the
+# recognizer does not have, so the flag could not be turned on at all.
+pipeline = Pipeline(settings)
 if settings.use_recognizer:
     from .recognizer_pipeline import RecognizerPipeline
 
     logger.info("extract-hpo is served by the Spanish symptom recognizer")
-    pipeline = RecognizerPipeline(settings)
+    extraction = RecognizerPipeline(settings)
 else:
-    pipeline = Pipeline(settings)
+    extraction = pipeline
 
 audit_logger = AuditLogger(settings.audit_database_url, settings.store_requests)
 
@@ -92,13 +97,19 @@ async def startup_event() -> None:
     logger.info("warming up pipeline")
     pipeline.phenotyper.ensure_ready()
     audit_logger.ensure_table()
-    # Pre-load NLLB translator so first request isn't slow
-    logger.info("pre-loading translator model...")
-    try:
-        pipeline.translator.translate("test", src_lang="spa_Latn", tgt_lang="eng_Latn")
-        logger.info("translator model ready")
-    except Exception as exc:
-        logger.warning("translator warmup failed (will retry on first request): %s", exc)
+    if extraction is not pipeline:
+        # The translator only serves the incumbent's extraction, so it is not
+        # warmed here; the recognizer is, and its credentials are checked now
+        # rather than on the first clinical history.
+        extraction.warm_up()
+    else:
+        # Pre-load NLLB translator so first request isn't slow
+        logger.info("pre-loading translator model...")
+        try:
+            pipeline.translator.translate("test", src_lang="spa_Latn", tgt_lang="eng_Latn")
+            logger.info("translator model ready")
+        except Exception as exc:
+            logger.warning("translator warmup failed (will retry on first request): %s", exc)
     # Load genphenia specialist/confidence post-processing
     _init_genphenia()
 
@@ -111,6 +122,7 @@ async def healthz():
         "translator_model": pipeline.translator.model_name,
         "phenotyper": pipeline.phenotyper.version,
         "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
+        "extract_hpo": extraction.status() if extraction is not pipeline else "incumbent",
     }
 
 
@@ -166,7 +178,7 @@ async def extract_hpo(
         logger.info("extract requested hash=%s text=%s", text_hash, request.text_es)
     else:
         logger.info("extract requested hash=%s length=%s", text_hash, len(request.text_es))
-    normalized_text = pipeline.normalize_text(request.text_es, request.patient_locale)
+    normalized_text = extraction.normalize_text(request.text_es, request.patient_locale)
     response = None
     error_message = None
     cache_hit = False
@@ -176,7 +188,7 @@ async def extract_hpo(
         # when extraction calls a paid model: a per-IP limit is evaded with
         # more addresses, a semaphore is not.
         with extraction_slots:
-            response, meta = pipeline.extract_with_meta(
+            response, meta = extraction.extract_with_meta(
                 request.text_es, request.patient_locale, normalized_text
             )
         cache_hit = bool(meta.get("cache_hit"))
@@ -205,8 +217,8 @@ async def extract_hpo(
                     symptoms_extracted=(response or {}).get("symptoms_extracted", []),
                     phenotypes=(response or {}).get("phenotypes", []),
                     model_symptom_extractor=model_info.get("symptom_extractor", "none"),
-                    model_translator=model_info.get("translator", pipeline.translator.model_name),
-                    model_phenotyper=model_info.get("phenotyper", pipeline.phenotyper.version),
+                    model_translator=model_info.get("translator", "none"),
+                    model_phenotyper=model_info.get("phenotyper", "none"),
                     cache_hit=cache_hit,
                     duration_ms=duration_ms,
                     error=error_message,

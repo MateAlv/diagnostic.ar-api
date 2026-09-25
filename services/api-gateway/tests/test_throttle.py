@@ -35,9 +35,22 @@ class TestClientIdentifier:
         request = FakeRequest("203.0.113.9", {"X-Forwarded-For": "1.2.3.4"})
         assert client_identifier(request, ["10.0.0.1"]) == "203.0.113.9"
 
-    def test_leftmost_entry_is_the_original_client(self):
+    def test_trusted_hops_are_skipped_from_the_right(self):
         request = FakeRequest("10.0.0.1", {"X-Forwarded-For": "203.0.113.9, 10.0.0.5"})
+        assert client_identifier(request, ["10.0.0.1", "10.0.0.5"]) == "203.0.113.9"
+
+    def test_a_caller_cannot_pick_their_bucket_by_prepending(self):
+        # The proxy appends what it saw; anything left of that is the caller's.
+        request = FakeRequest("10.0.0.1", {"X-Forwarded-For": "1.2.3.4, 203.0.113.9"})
         assert client_identifier(request, ["10.0.0.1"]) == "203.0.113.9"
+
+    def test_proxies_can_be_named_by_cidr(self):
+        request = FakeRequest("172.18.0.7", {"X-Forwarded-For": "203.0.113.9"})
+        assert client_identifier(request, ["172.18.0.0/16"]) == "203.0.113.9"
+
+    def test_a_malformed_entry_is_ignored(self):
+        request = FakeRequest("10.0.0.1", {"X-Forwarded-For": "203.0.113.9"})
+        assert client_identifier(request, ["not-an-ip", "10.0.0.1"]) == "203.0.113.9"
 
     def test_empty_forwarded_header_falls_back_to_the_peer(self):
         request = FakeRequest("10.0.0.1", {"X-Forwarded-For": "  "})

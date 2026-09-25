@@ -14,8 +14,10 @@ reach the model twice.
 from __future__ import annotations
 
 import logging
+import os
 import time
-from typing import Any, Dict, Tuple
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 from .cache import RedisCache
 from .config import Settings
@@ -24,6 +26,29 @@ from .normalization import Normalizer
 logger = logging.getLogger(__name__)
 
 PIPELINE_NAME = "spanish-symptoms-recognizer"
+
+
+def credentials_problem(provider: str, environ=os.environ, home: Optional[Path] = None) -> Optional[str]:
+    """Why the provider cannot authenticate, or None when it has something to try.
+
+    Only checks that a credential is present, not that it is valid — proving
+    that costs a model call. It catches the failure that actually happened:
+    a container with no credential at all, which only surfaced on the first
+    clinical history.
+    """
+    if provider == "claude-cli":
+        if environ.get("CLAUDE_CODE_OAUTH_TOKEN") or environ.get("ANTHROPIC_API_KEY"):
+            return None
+        credentials = (home or Path.home()) / ".claude" / ".credentials.json"
+        if credentials.is_file():
+            return None
+        return (
+            "claude-cli has no credential: set CLAUDE_CODE_OAUTH_TOKEN "
+            "(from `claude setup-token`) or mount ~/.claude/.credentials.json"
+        )
+    if provider == "anthropic" and not environ.get("ANTHROPIC_API_KEY"):
+        return "RECOGNIZER_PROVIDER=anthropic needs ANTHROPIC_API_KEY"
+    return None
 
 
 class RecognizerPipeline:
@@ -40,6 +65,7 @@ class RecognizerPipeline:
             settings.redis_url, settings.cache_ttl_seconds, settings.cache_enabled
         )
         self._extractor = extractor
+        self._warm_up_error: Optional[str] = None
 
     @property
     def extractor(self):
@@ -58,6 +84,34 @@ class RecognizerPipeline:
                 text_parser=self.settings.recognizer_text_parser,
             )
         return self._extractor
+
+    def warm_up(self) -> None:
+        """Load the encoder and check credentials at startup.
+
+        Never raises: a gateway that fails to start also takes search and
+        specialties down with it. The problem is logged and reported by
+        /healthz instead.
+        """
+        problem = credentials_problem(self.settings.recognizer_provider)
+        if problem:
+            self._warm_up_error = problem
+            logger.error("recognizer cannot authenticate: %s", problem)
+            return
+        try:
+            self.extractor
+            logger.info("recognizer ready")
+        except Exception as exc:  # noqa: BLE001 - reported, not fatal
+            self._warm_up_error = f"{type(exc).__name__}: {exc}"
+            logger.exception("recognizer failed to load")
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "pipeline": PIPELINE_NAME,
+            "provider": self.settings.recognizer_provider,
+            "model": self.settings.recognizer_model,
+            "ready": self._extractor is not None and self._warm_up_error is None,
+            "error": self._warm_up_error,
+        }
 
     def normalize_text(self, text_es: str, locale: str = "es-AR") -> str:
         normalized = text_es

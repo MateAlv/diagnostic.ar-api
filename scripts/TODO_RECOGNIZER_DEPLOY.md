@@ -71,3 +71,40 @@ Setting `REQUIRE_AUTH=true` before step 1 makes every request 401.
 - **Nothing has been measured against the incumbent.** The recognizer scored
   micro F1 0.676 on its own 8-history dataset; the incumbent was never scored,
   by decision, since the recognizer replaces it rather than having to beat it.
+
+## 5. Staging runs it on nodo0, not on brainy (2026-09-24)
+
+Staging and production reach **the same gateway** on brainy: both hpo-tunnels
+point at nodo0:18100. Setting `USE_RECOGNIZER` there turns it on for
+production. Staging therefore runs its own gateway, built from
+`services/api-gateway/Dockerfile.recognizer`, as `hpo-recognizer` in the
+`diagnosticar-staging` compose project on nodo0. A Traefik router takes only
+`/hpo-api/extract-hpo`; search and specialties still go to brainy.
+
+It needs no GPU: the LLM is remote and the ClinLinker encoder loads on CPU in
+under a second, ~450 MB resident. The image is ~3 GB and is built on TARS,
+because the recognizer's assets are not in git (see the Dockerfile header).
+The recognizer code comes from the private copy
+`MateAlv/spanish-symptoms-recognizer`.
+
+Auth for staging is a subscription token from `claude setup-token`, passed as
+`CLAUDE_CODE_OAUTH_TOKEN`. Mounting `~/.claude/.credentials.json` works too,
+but the CLI refreshes and rewrites that file, and two machines sharing one
+login can sign each other out.
+
+Found while building it, all fixed on this branch:
+
+- **The flag could not be turned on.** Swapping the whole pipeline left
+  startup (`phenotyper.ensure_ready`), `/healthz`, `/info`, `/hpo/es/search`
+  and the audit record calling attributes the recognizer does not have: the
+  gateway would not boot, and past that every extraction would 500 in the
+  audit `finally`. The incumbent now always serves those; the flag only
+  chooses who answers `/extract-hpo`.
+- **`PyJWT` was missing from `requirements.txt`**, so an image built from
+  `main` fails importing `app/auth.py`.
+- **`X-Forwarded-For` was read from the left**, which is whatever the caller
+  sent. It is now read from the right, skipping trusted hops, and
+  `TRUSTED_PROXIES` accepts CIDRs, since Traefik's address on a Docker network
+  changes when its container is recreated.
+- Startup now checks the provider has a credential and loads the encoder;
+  `/healthz` reports `extract_hpo.ready` and the reason when it is not.

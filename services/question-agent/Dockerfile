@@ -12,10 +12,10 @@
 #
 # The knowledge base is rebuilt here from the pinned HPO release (every source
 # verified by sha256), so a laptop build and a CI build ship the same file.
-# The release job tests the image by mounting the agent's tests/ read-only and
-# installing pytest for that run only:
+# The release job tests the image by mounting the agent's tests/ and docs/ (the
+# contract example) read-only and installing pytest for that run only:
 #
-#   docker run --rm -e HOME=/tmp -v "$PWD/agent/tests:/tmp/tests:ro" IMAGE \
+#   docker run --rm -e HOME=/tmp -v "$PWD/agent/tests:/tmp/tests:ro" -v "$PWD/agent/docs:/tmp/docs:ro" IMAGE \
 #     sh -c "pip install -q --user pytest==8.3.2 && python -m pytest /tmp/tests -q -p no:cacheprovider -m 'not live'"
 #
 # That is why the runtime keeps pip and installs into the system interpreter
@@ -29,9 +29,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /build
-COPY --from=agent pyproject.toml README.md ./
+COPY --from=agent pyproject.toml README.md constraints.txt ./
 COPY --from=agent src ./src
-RUN pip wheel --wheel-dir /wheels . \
+# The agent's pyproject.toml only sets lower bounds; its constraints.txt pins
+# every runtime dependency, so two builds of one agent commit install the same
+# versions.
+RUN pip wheel --wheel-dir /wheels -c constraints.txt . \
     && pip install --no-index --find-links /wheels diagnosticar-preguntas
 
 # The download directory is a cache mount: a code change rebuilds the knowledge

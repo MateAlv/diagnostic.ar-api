@@ -14,10 +14,12 @@ solo el `Dockerfile`, que lo recibe como un contexto de build adicional llamado
 reconocedor de síntomas. El commit que se publica está fijado en el repositorio
 de la plataforma, en `.github/question-agent.env` (`QUESTION_AGENT_COMMIT`).
 
-La imagen reconstruye la base de conocimiento desde las fuentes HPO fijadas
-(cada una verificada por sha256), trae el CLI de Claude fijado
-(`@anthropic-ai/claude-code` 2.1.270, sin Node ni npm), deja la base como
-archivo de solo lectura y corre como el usuario `app` (uid 10001).
+La imagen instala las dependencias de ejecución con las versiones exactas del
+`constraints.txt` del agente (se regenera allá con `make lock`), reconstruye la
+base de conocimiento desde las fuentes HPO fijadas (cada una verificada por
+sha256), trae el CLI de Claude fijado (`@anthropic-ai/claude-code` 2.1.270, sin
+Node ni npm), deja la base como archivo de solo lectura y corre como el usuario
+`app` (uid 10001).
 
 ## Construir y probar
 
@@ -34,12 +36,12 @@ un LLM de verdad y quedan afuera:
 
 ```sh
 docker run --rm -e HOME=/tmp -v "$PWD/../qa-agente-claude/tests:/tmp/tests:ro" \
-  diagnosticar-question-agent:dev \
+  -v "$PWD/../qa-agente-claude/docs:/tmp/docs:ro" diagnosticar-question-agent:dev \
   sh -c "pip install -q --user pytest==8.3.2 && python -m pytest /tmp/tests -q -p no:cacheprovider -m 'not live'"
 ```
 
-Montando además `../qa-agente-claude/docs` en `/tmp/docs:ro` corren también los
-tests que validan el ejemplo del contrato.
+`docs/` va montado porque hay tests que validan el ejemplo del contrato; sin él
+se saltean.
 
 ## Correr
 
@@ -81,6 +83,10 @@ Todas las variables `PREGUNTAS_*` están en el README del agente, sección
 ## Publicación
 
 La imagen la publica el workflow de release de diagnostic.ar
-(`.github/workflows/release.yml`, job `publish-question-agent`): construye,
-corre los tests dentro de la imagen, la escanea con Trivy (HIGH y CRITICAL),
-verifica que no corra como root y la sube a GHCR.
+(`.github/workflows/release.yml`, job `publish-question-agent`) con este
+`Dockerfile`: clona este repositorio en el commit de `GATEWAY_COMMIT`
+(`.github/recognizer.env`) y el agente en el de `QUESTION_AGENT_COMMIT`
+(`.github/question-agent.env`), construye, corre los tests dentro de la imagen,
+la escanea con Trivy (HIGH y CRITICAL), verifica que no corra como root y la
+sube a GHCR. `GATEWAY_COMMIT` tiene que apuntar a un commit que ya tenga este
+`Dockerfile`.

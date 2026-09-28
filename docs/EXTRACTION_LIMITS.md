@@ -59,15 +59,20 @@ Replacing it (`--system-prompt`, no tools) is likely the largest single saving
 available, but it changes what the model sees, so the recognizer's quality has
 to be measured again before and after.
 
-## Staging: 15% of a Claude Max subscription
+## Staging: 40 per 5 hours on a Claude Max subscription
 
-Staging runs on Mate's Claude Max (US$100) subscription token. His ceiling
-(2026-09-28): **staging may use at most 15% of that subscription's limits**.
+Staging runs on Mate's Claude Max (US$100) subscription token. His
+requirements (2026-09-28): **at least 40 extractions per 5 hours**, and
+ideally no more than 15% of the subscription's limits — **when the two
+conflict, the 40 wins.** So staging runs `GLOBAL_EXTRACTIONS_PER_5H=40` and
+`GLOBAL_EXTRACTIONS_PER_WEEK=1344` (the same rate over a week, 40 × 168 / 5,
+which adds no limit of its own); `.env.staging` can override both
+(`RECOGNIZER_GLOBAL_PER_5H`, `RECOGNIZER_GLOBAL_PER_WEEK`).
 
-Anthropic does not publish those limits in tokens, so 15% cannot be computed
-from the table above. Until it is measured, staging runs well below any
-plausible reading of it: **3 per 5 hours, 20 per week**
-(`RECOGNIZER_GLOBAL_PER_5H`, `RECOGNIZER_GLOBAL_PER_WEEK` in `.env.staging`).
+At the costs above, 40 extractions are about US$38 of API-equivalent usage
+per 5 hours. Anthropic does not publish the subscription's limits in tokens,
+so whether that is inside 15% can only be measured. If it is not, the lever is
+the cost per extraction (the system prompt, above), not the cap.
 
 ### Calibration
 
@@ -83,13 +88,11 @@ plausible reading of it: **3 per 5 hours, 20 per week**
    Five typical histories, called directly (the budget does not stop them),
    with token usage per call.
 4. Note both percentages again. With `s` and `w` the session and weekly
-   increases divided by 5:
-   - `RECOGNIZER_GLOBAL_PER_5H = floor(15 / s)`
-   - `RECOGNIZER_GLOBAL_PER_WEEK = floor(15 / w)`
-
-   Set them in `.env.staging` and run `ops/staging.sh up` again. The typical
-   history is a middle case; a long one costs about three times as much, so
-   leave the result as it comes rather than rounding up.
+   increases divided by 5, 40 extractions use `40 × s` % of a session and a
+   full week at that rate `1344 × w` %. Compare with 15%: at or under, nothing
+   to do; over, reduce the cost per extraction rather than the cap, since the
+   40 is the requirement. A long history costs about three times the typical
+   one used here.
 
 ## With an API key
 

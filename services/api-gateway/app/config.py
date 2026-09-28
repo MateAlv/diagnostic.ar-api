@@ -100,6 +100,19 @@ class Settings(BaseSettings):
     # forever behind a slow model is worse than a prompt 503.
     max_extraction_queue: int = Field(default=8, validation_alias="MAX_EXTRACTION_QUEUE")
 
+    # Extractions per signed-in account (the token's subject). 0 disables each.
+    user_extractions_per_hour: int = Field(default=0, validation_alias="USER_EXTRACTIONS_PER_HOUR")
+    user_extractions_per_day: int = Field(default=0, validation_alias="USER_EXTRACTIONS_PER_DAY")
+
+    # Extractions for the whole service, over the two windows a Claude
+    # subscription meters (a rolling 5 hours and a week). This is the ceiling on
+    # spend; see docs/EXTRACTION_LIMITS.md for how the numbers are derived.
+    # 0 disables each. EXTRACTION_BUDGET_STATE is a writable file that keeps
+    # the count across restarts; without it every redeploy resets the week.
+    global_extractions_per_5h: int = Field(default=0, validation_alias="GLOBAL_EXTRACTIONS_PER_5H")
+    global_extractions_per_week: int = Field(default=0, validation_alias="GLOBAL_EXTRACTIONS_PER_WEEK")
+    extraction_budget_state: str = Field(default="", validation_alias="EXTRACTION_BUDGET_STATE")
+
     class Config:
         env_file = ".env"
         case_sensitive = False

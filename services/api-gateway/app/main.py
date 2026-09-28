@@ -16,7 +16,13 @@ from .config import settings
 from .logging import configure_logging
 from .pipeline import Pipeline
 from .schemas import ExtractRequest, ExtractResponse
-from .throttle import ConcurrencyLimiter, PerIpRateLimiter, client_identifier
+from .throttle import (
+    ConcurrencyLimiter,
+    GlobalExtractionBudget,
+    PerIpRateLimiter,
+    PerUserRateLimiter,
+    client_identifier,
+)
 from .utils import hash_text
 
 # ---------------------------------------------------------------------------
@@ -85,8 +91,16 @@ else:
 
 audit_logger = AuditLogger(settings.audit_database_url, settings.store_requests)
 
-# Both default to disabled, so this changes nothing until configured.
+# All default to disabled, so none of this changes anything until configured.
 extract_rate_limiter = PerIpRateLimiter(settings.rate_limit_per_minute)
+user_rate_limiter = PerUserRateLimiter(
+    settings.user_extractions_per_hour, settings.user_extractions_per_day
+)
+extraction_budget = GlobalExtractionBudget(
+    settings.global_extractions_per_5h,
+    settings.global_extractions_per_week,
+    settings.extraction_budget_state,
+)
 extraction_slots = ConcurrencyLimiter(
     settings.max_concurrent_extractions, settings.max_extraction_queue
 )
@@ -123,6 +137,7 @@ async def healthz():
         "phenotyper": pipeline.phenotyper.version,
         "hpo_index_loaded": pipeline.phenotyper.hpo_index_loaded,
         "extract_hpo": extraction.status() if extraction is not pipeline else "incumbent",
+        "extraction_budget": extraction_budget.status(),
     }
 
 
@@ -171,6 +186,7 @@ async def extract_hpo(
     extract_rate_limiter.check(
         client_identifier(http_request, settings.trusted_proxies_list)
     )
+    user_rate_limiter.check(user.user_id if user else None)
 
     started = time.time()
     text_hash = hash_text(request.text_es)
@@ -188,6 +204,9 @@ async def extract_hpo(
         # when extraction calls a paid model: a per-IP limit is evaded with
         # more addresses, a semaphore is not.
         with extraction_slots:
+            # Counted only once a slot is held, right before the model is
+            # called: a caller shed by the queue has spent nothing.
+            extraction_budget.consume()
             response, meta = extraction.extract_with_meta(
                 request.text_es, request.patient_locale, normalized_text
             )

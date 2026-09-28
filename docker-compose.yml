@@ -62,6 +62,34 @@ services:
     ports:
       - "${GENPHENAI_BIND_IP:-0.0.0.0}:${GENPHENAI_PORT:-18020}:18020"
 
+  # Follow-up questions (MarBL00126/diagnosticar-question-agent), built from a
+  # checkout of that repository; see services/question-agent/README.md.
+  # Behind a profile so a plain `up` never needs that checkout:
+  #   docker compose --profile question-agent up -d question-agent
+  # No published port: in the platform only its backend calls it.
+  question-agent:
+    build:
+      context: .
+      dockerfile: services/question-agent/Dockerfile
+      additional_contexts:
+        agent: ${QUESTION_AGENT_SRC:-../qa-agente-claude}
+    profiles: ["question-agent"]
+    environment:
+      PREGUNTAS_MODEL_SERVICE_URL: http://genphenai:18020
+      PREGUNTAS_LLM_PROVIDER: ${PREGUNTAS_LLM_PROVIDER:-template}
+      PREGUNTAS_SERVICE_TOKEN: ${QUESTION_AGENT_TOKEN:-}
+      CLAUDE_CODE_OAUTH_TOKEN:
+      ANTHROPIC_API_KEY:
+    healthcheck:
+      # The image ships python but no curl.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - genphenai
+
   web:
     build:
       context: ./web

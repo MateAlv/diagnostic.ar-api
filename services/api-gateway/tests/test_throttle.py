@@ -1,6 +1,7 @@
-"""Tests for per-IP rate limiting and the concurrency cap."""
+"""Tests for the rate limits, the global extraction budget and the concurrency cap."""
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -9,7 +10,10 @@ from fastapi import HTTPException
 
 from app.throttle import (
     ConcurrencyLimiter,
+    GlobalExtractionBudget,
     PerIpRateLimiter,
+    PerUserRateLimiter,
+    SlidingWindowLimiter,
     UNKNOWN_CLIENT,
     client_identifier,
 )
@@ -178,3 +182,112 @@ class TestConcurrencyLimiter:
 
         assert rejected, "expected some callers to be shed"
         assert set(rejected) == {503}
+
+
+class TestSlidingWindowLimiter:
+    def test_allows_up_to_the_limit_then_reports_the_wait(self):
+        limiter = SlidingWindowLimiter([(2, 60.0)])
+        assert limiter.acquire("a", now=100.0) == 0
+        assert limiter.acquire("a", now=110.0) == 0
+        # Full until the first event, at 100, is older than 60 s.
+        assert limiter.acquire("a", now=120.0) == pytest.approx(40.0)
+
+    def test_the_window_slides_rather_than_resetting(self):
+        # A fixed window would allow 2 at 59 s and 2 more at 61 s.
+        limiter = SlidingWindowLimiter([(2, 60.0)])
+        limiter.acquire("a", now=58.0)
+        limiter.acquire("a", now=59.0)
+        assert limiter.acquire("a", now=61.0) > 0
+        assert limiter.acquire("a", now=118.5) == 0
+
+    def test_a_refused_request_is_not_counted(self):
+        limiter = SlidingWindowLimiter([(1, 60.0)])
+        limiter.acquire("a", now=0.0)
+        for t in (10.0, 20.0, 30.0):
+            assert limiter.acquire("a", now=t) > 0
+        assert limiter.acquire("a", now=60.5) == 0
+
+    def test_every_window_must_have_room(self):
+        limiter = SlidingWindowLimiter([(10, 60.0), (3, 3600.0)])
+        for t in (0.0, 1.0, 2.0):
+            assert limiter.acquire("a", now=t) == 0
+        # The minute has room, the hour does not.
+        assert limiter.acquire("a", now=120.0) == pytest.approx(3480.0)
+
+    def test_keys_are_independent(self):
+        limiter = SlidingWindowLimiter([(1, 60.0)])
+        assert limiter.acquire("a", now=0.0) == 0
+        assert limiter.acquire("b", now=0.0) == 0
+
+    def test_zero_turns_a_window_off(self):
+        limiter = SlidingWindowLimiter([(0, 60.0), (0, 3600.0)])
+        assert not limiter.enabled
+        assert all(limiter.acquire("a") == 0 for _ in range(100))
+
+
+class TestPerUserRateLimiter:
+    def test_limits_one_account_without_touching_another(self):
+        limiter = PerUserRateLimiter(per_hour=2, per_day=0)
+        limiter.check("user-1")
+        limiter.check("user-1")
+        with pytest.raises(HTTPException) as refused:
+            limiter.check("user-1")
+        assert refused.value.status_code == 429
+        assert refused.value.detail["error"] == "user-rate-limit"
+        assert int(refused.value.headers["Retry-After"]) > 0
+        limiter.check("user-2")
+
+    def test_an_anonymous_caller_is_not_its_business(self):
+        # Unauthenticated calls are refused by auth before they cost anything.
+        limiter = PerUserRateLimiter(per_hour=1, per_day=1)
+        for _ in range(5):
+            limiter.check(None)
+
+
+class TestGlobalExtractionBudget:
+    def test_refuses_everyone_once_spent(self):
+        budget = GlobalExtractionBudget(per_5h=2, per_week=0)
+        budget.consume()
+        budget.consume()
+        with pytest.raises(HTTPException) as refused:
+            budget.consume()
+        assert refused.value.status_code == 429
+        assert refused.value.detail["error"] == "global-budget"
+        assert budget.status()["used_5h"] == 2
+
+    def test_the_week_caps_what_the_5_hours_would_allow(self):
+        budget = GlobalExtractionBudget(per_5h=10, per_week=3)
+        for _ in range(3):
+            budget.consume()
+        with pytest.raises(HTTPException):
+            budget.consume()
+
+    def test_survives_a_restart(self, tmp_path):
+        state = tmp_path / "budget.json"
+        first = GlobalExtractionBudget(per_5h=0, per_week=2, state_path=str(state))
+        first.consume()
+        first.consume()
+        # A redeploy must not hand out a second week's budget.
+        second = GlobalExtractionBudget(per_5h=0, per_week=2, state_path=str(state))
+        with pytest.raises(HTTPException):
+            second.consume()
+        assert second.status()["used_week"] == 2
+
+    def test_forgets_what_is_older_than_a_week(self, tmp_path):
+        state = tmp_path / "budget.json"
+        state.write_text(json.dumps([time.time() - 8 * 86400]))
+        budget = GlobalExtractionBudget(per_5h=0, per_week=1, state_path=str(state))
+        budget.consume()
+
+    def test_an_unreadable_history_stops_the_service(self, tmp_path):
+        # Starting from zero instead would repeat a week's spend.
+        state = tmp_path / "budget.json"
+        state.write_text("not json")
+        with pytest.raises(ValueError):
+            GlobalExtractionBudget(per_5h=0, per_week=5, state_path=str(state))
+
+    def test_disabled_by_default(self):
+        budget = GlobalExtractionBudget(per_5h=0, per_week=0)
+        assert budget.status() == {"enabled": False}
+        for _ in range(100):
+            budget.consume()

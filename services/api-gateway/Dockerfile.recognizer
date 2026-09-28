@@ -77,7 +77,10 @@ RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(
     && curl -fsSL -o /opt/assets/hp-es.babelon.tsv \
         "https://raw.githubusercontent.com/obophenotype/hpo-translations/${HPO_TRANSLATIONS_COMMIT}/babelon/hp-es.babelon.tsv"
 
-RUN useradd --create-home --uid 10001 app
+RUN useradd --create-home --uid 10001 app \
+    && mkdir -p /var/lib/recognizer && chown app /var/lib/recognizer
+# Where EXTRACTION_BUDGET_STATE lives when a volume is mounted here. Created
+# owned by `app` so a new named volume inherits that owner instead of root.
 WORKDIR /app
 
 COPY --from=recognizer --chown=app symptoms_recognizer /opt/recognizer/symptoms_recognizer

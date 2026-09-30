@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from .audit import AuditLogger, AuditRecord
 from .auth import AuthenticatedUser, require_user
 from .config import settings
+from .errors import UnhandledErrorsAsJson
 from .logging import configure_logging
 from .pipeline import Pipeline
 from .schemas import ExtractRequest, ExtractResponse
@@ -80,6 +81,8 @@ logger = logging.getLogger("api")
 
 app = FastAPI(title=settings.app_name)
 
+# Before CORS, so that CORS wraps it: see UnhandledErrorsAsJson.
+app.add_middleware(UnhandledErrorsAsJson)
 if settings.cors_origins_list:
     app.add_middleware(
         CORSMiddleware,

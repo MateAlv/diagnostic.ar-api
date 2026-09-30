@@ -58,9 +58,11 @@ RUN grep -v -E '^(torch|triton|nvidia-|cuda-|medspacy|PyFastNER|PyRuSH|quicksect
 
 # Newer than requirements.txt on purpose: the release scan fails on PyJWT
 # 2.10 (CVE-2026-48526, forged-token authentication bypass, in the library
-# that verifies every session here) and on Starlette 0.37.
+# that verifies every session here), on Starlette 0.37, and on the
+# recognizer's urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97689).
 RUN pip install \
         fastapi==0.141.1 \
+        urllib3==2.8.0 \
         "uvicorn[standard]==0.54.0" \
         pydantic-settings \
         redis==5.0.7 \

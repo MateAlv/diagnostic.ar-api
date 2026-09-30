@@ -22,6 +22,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .errors import UnhandledErrorsAsJson
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("genphenai")
 
@@ -103,6 +105,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="GenPhenAI", version="0.3.0-in-process", lifespan=lifespan)
 
+# Before CORS, so that CORS wraps it: see UnhandledErrorsAsJson.
+app.add_middleware(UnhandledErrorsAsJson)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,

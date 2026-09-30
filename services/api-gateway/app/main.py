@@ -26,12 +26,25 @@ from .throttle import (
 from .utils import hash_text
 
 # ---------------------------------------------------------------------------
-# Genphenia post-processing (specialist recommendations + confidence)
-# The genphenia scripts live at /app/services/genphenia/ inside the container
-# (copied via `COPY services /app/services` in the Dockerfile). They use bare
-# imports between each other, so we add their directory to sys.path once.
+# Specialist recommendations + confidence, shared with services/genphenai:
+# its scripts and PanelApp table. They use bare imports between each other, so
+# their directory goes on sys.path once.
 # ---------------------------------------------------------------------------
-_GENPHENIA_DIR = Path(__file__).parent.parent.parent.parent / "services" / "genphenia"
+def _find_genphenai_dir() -> Path:
+    """services/genphenai, in a checkout or inside an image.
+
+    In a checkout this file is services/api-gateway/app/main.py. The images
+    copy services/ to /app/services but this package to /app/app, so walking
+    up from here does not reach it there.
+    """
+    candidates = [
+        Path(__file__).resolve().parents[2] / "genphenai",
+        Path("/app/services/genphenai"),
+    ]
+    return next((c for c in candidates if c.is_dir()), candidates[0])
+
+
+_GENPHENIA_DIR = _find_genphenai_dir()
 
 _recommend_specialties = None
 _confidence_from_distribution = None
@@ -153,7 +166,8 @@ async def info():
         },
         "translator": {
             "model_name": pipeline.translator.model_name,
-            "device": settings.nllb_device,
+            # Only the NLLB translator has a device; the Ollama one runs remotely.
+            "device": getattr(pipeline.translator, "device", None),
         },
         "phenotyper": {
             "version": pipeline.phenotyper.version,

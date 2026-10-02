@@ -93,8 +93,9 @@ cd services/genphenai && python -m pytest tests -q
 
 `Dockerfile.recognizer` does not compute the embeddings of the HPO terms: they
 are a release of `diagnostic.ar-model` too (`hpo-embeddings-vX.Y.Z`, generated
-there from `hpo-embeddings/embeddings.lock`), pinned in
-`services/api-gateway/embeddings.lock`. Fetch them before building the
+there from `hpo-embeddings/embeddings.lock`), pinned by tag in
+`services/api-gateway/embeddings.lock` and checked against the sha256 the
+release publishes. Fetch them before building the
 extractor; the build verifies them (`services/api-gateway/check_embeddings.py`)
 and refuses a package made with another encoder, other labels or another
 generator script:

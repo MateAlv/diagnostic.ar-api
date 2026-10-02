@@ -6,13 +6,18 @@
 # generator script (so a new encoder means new embeddings, never a mismatch).
 #
 # To move to another version: publish it in diagnostic.ar-model, then change
-# EMB_TAG and EMB_SHA256 here, together with the pins below if they changed.
+# EMB_TAG here, together with the pins below if they changed.
+#
+# The package's sha256 is the one the release publishes beside it (its .sha256
+# asset), so a version can be pinned before it is published and the pull
+# requests merged in one go. What the build trusts is still checked: the
+# manifest inside must name the encoder and labels pinned below and the
+# recognizer's own generator script, and every file must match its sha256 in
+# that manifest (check_embeddings.py). Releases of diagnostic.ar-model can only
+# be changed by that repository's writers.
 EMB_REPO=MateAlv/diagnostic.ar-model
 EMB_TAG=hpo-embeddings-v1.0.0
 EMB_ASSET=hpo-embeddings-clinlinker-kb-gp.tar.gz
-# The sha256 the release publishes (its .sha256 asset). PENDING until the
-# release exists; fetch_embeddings.sh refuses to run with it.
-EMB_SHA256=PENDING
 
 # The encoder the extractor loads at run time to encode what people write. It
 # must be the one the embeddings were made with.

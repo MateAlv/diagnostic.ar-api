@@ -67,8 +67,8 @@ Setting `REQUIRE_AUTH=true` before step 1 makes every request 401.
 - **The recognizer's assets are not in git.** It needs `hp-es.babelon.tsv`,
   the ClinLinker encoder (485MB) and the HPO embedding batches (62MB). The
   encoder is downloaded at build time; the batches and the labels come ready
-  made from a diagnostic.ar-model release (`hpo-embeddings-vX.Y.Z`, pinned in
-  `services/api-gateway/embeddings.lock`, fetched by `fetch_embeddings.sh`).
+  made from a diagnostic.ar-model release (`hpo-embeddings-vX.Y.Z`, pinned by
+  tag in `services/api-gateway/embeddings.lock`, fetched by `fetch_embeddings.sh`).
   Computing them took ~80 s on TARS but ~11 min on a GitHub runner, on every
   build; the build now checks the package against its encoder, labels and
   generator script and refuses a mismatch.

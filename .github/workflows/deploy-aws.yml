@@ -9,7 +9,7 @@ name: Deploy to AWS
 # MateAlv/spanish-symptoms-recognizer, which deploys it the same way when it
 # changes. The model is the release pinned in services/genphenai/model.lock.
 #
-# Off until the repository variable AWS_DEPLOY_ROLE_ARN exists, so merging this
+# Off until the repository secret AWS_DEPLOY_ROLE_ARN exists, so merging this
 # file changes nothing by itself. No AWS key is stored here: GitHub signs in
 # with OIDC, as a role that only main of this repository can assume.
 # DEPLOY_READ_TOKEN reads the two other private repositories (the recognizer's
@@ -33,8 +33,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Secrets cannot be read in a job's `if`, so a first job says whether
+  # AWS_DEPLOY_ROLE_ARN is set; without it the deploy is skipped, not failed.
+  configured:
+    runs-on: ubuntu-latest
+    outputs:
+      yes: ${{ steps.check.outputs.yes }}
+    steps:
+      - id: check
+        env:
+          ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -n "$ROLE" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else echo "::notice::AWS_DEPLOY_ROLE_ARN is not set; not deploying."; fi
+
   deploy:
-    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    needs: configured
+    if: needs.configured.outputs.yes == 'true'
     runs-on: ubuntu-latest
     # The extractor is ~30 minutes cold; with the cache, far less.
     timeout-minutes: 75
@@ -57,8 +71,13 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      # The account id is not a credential, but it stays out of the logs: it is
+      # in the role ARN and in every ECR image name.
+      - name: Mask the AWS account id
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
 
       - id: target
         run: |

@@ -14,10 +14,17 @@
 #     --build-context recognizer=../spanish-symptoms-recognizer \
 #     -t diagnosticar-hpo-recognizer:dev .
 #
-# Its model assets are not in git. They are fetched here at pinned revisions
-# and the HPO embeddings are generated from them, so a build on a laptop and a
-# build in CI produce the same image — the one that was evaluated. Whatever
-# assets the checkout happens to hold are discarded.
+# Its model assets are not in git. The ClinLinker encoder is fetched here at
+# the revision pinned in embeddings.lock, and the HPO embeddings come ready
+# made: a release of MateAlv/diagnostic.ar-model, generated once from that same
+# encoder, labels and script. Fetch it first, as for the model:
+#
+#   services/api-gateway/fetch_embeddings.sh      # -> embeddings-dist/
+#
+# The build refuses a package whose sha256 is not the pinned one, or whose
+# manifest names another encoder, other labels or another generator script than
+# this build uses: a new encoder means new embeddings, never a mismatch.
+# Whatever assets the checkout happens to hold are discarded.
 
 # 3.12: the recognizer pins numpy 2.5, which has no 3.11 wheels; TARS runs 3.12.3.
 FROM python:3.12-slim
@@ -71,15 +78,14 @@ RUN pip install \
         "PyJWT[crypto]==2.15.0" \
         https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
-# The ClinLinker encoder and the Spanish HPO labels, at the revisions the
-# recognizer was evaluated with on 2026-09-21. Fetched before the code is
-# copied, so a code change does not download 485 MB again.
-ARG CLINLINKER_REVISION=8f914c58a1cbcff43331eb15b101eaa5e5c6920a
-ARG HPO_TRANSLATIONS_COMMIT=69f7f96fba5ae4c1b999028991510088f3480487
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ICB-UMA/ClinLinker-KB-GP', revision='${CLINLINKER_REVISION}', local_dir='/opt/assets/clinlinker-kb-gp', allow_patterns=['*.json', '*.txt', 'pytorch_model.bin'])" \
-    && rm -rf /opt/assets/clinlinker-kb-gp/.cache \
-    && curl -fsSL -o /opt/assets/hp-es.babelon.tsv \
-        "https://raw.githubusercontent.com/obophenotype/hpo-translations/${HPO_TRANSLATIONS_COMMIT}/babelon/hp-es.babelon.tsv"
+# The ClinLinker encoder, at the revision the recognizer was evaluated with on
+# 2026-09-21 (embeddings.lock): the extractor encodes what people write with
+# it. Fetched before the code is copied, so a code change does not download
+# 485 MB again.
+RUN --mount=type=bind,source=services/api-gateway/embeddings.lock,target=/tmp/embeddings.lock \
+    . /tmp/embeddings.lock \
+    && python -c "from huggingface_hub import snapshot_download; snapshot_download('${CLINLINKER_REPO}', revision='${CLINLINKER_REVISION}', local_dir='/opt/assets/clinlinker-kb-gp', allow_patterns=['*.json', '*.txt', 'pytorch_model.bin'])" \
+    && rm -rf /opt/assets/clinlinker-kb-gp/.cache
 
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /var/lib/recognizer && chown app /var/lib/recognizer
@@ -88,13 +94,24 @@ RUN useradd --create-home --uid 10001 app \
 WORKDIR /app
 
 COPY --from=recognizer --chown=app symptoms_recognizer /opt/recognizer/symptoms_recognizer
-RUN cd /opt/recognizer/symptoms_recognizer/mapper \
+# The embeddings and the labels they were made from, unpacked from the pinned
+# release (fetch_embeddings.sh) after checking its sha256, and its manifest
+# against this build (check_embeddings.py). The manifest stays in the image,
+# at /opt/recognizer/hpo-embeddings-manifest.json, as the record of what runs.
+RUN --mount=type=bind,source=services/api-gateway/embeddings.lock,target=/tmp/embeddings.lock \
+    --mount=type=bind,source=services/api-gateway/check_embeddings.py,target=/tmp/check_embeddings.py \
+    --mount=type=bind,source=embeddings-dist,target=/tmp/embeddings-dist \
+    . /tmp/embeddings.lock \
+    && echo "$EMB_SHA256  /tmp/embeddings-dist/$EMB_ASSET" | sha256sum -c \
+    && mkdir /tmp/package && tar -xzf "/tmp/embeddings-dist/$EMB_ASSET" -C /tmp/package \
+    && cd /opt/recognizer/symptoms_recognizer/mapper \
+    && python /tmp/check_embeddings.py /tmp/package /tmp/embeddings.lock hpo_tsv_reader.py \
     && rm -rf semantic_model/clinlinker-kb-gp hpo/hpo_batches hpo/hp-es.babelon.tsv \
     && mkdir -p semantic_model hpo \
     && cp -r /opt/assets/clinlinker-kb-gp semantic_model/clinlinker-kb-gp \
-    && cp /opt/assets/hp-es.babelon.tsv hpo/hp-es.babelon.tsv \
-    && python hpo_tsv_reader.py \
-    && rm -rf /opt/assets \
+    && cp -r /tmp/package/hpo/. hpo/ \
+    && cp /tmp/package/manifest.json /opt/recognizer/hpo-embeddings-manifest.json \
+    && rm -rf /tmp/package /opt/assets \
     && chown -R app /opt/recognizer
 COPY --chown=app services /app/services
 COPY --chown=app services/api-gateway/app /app/app

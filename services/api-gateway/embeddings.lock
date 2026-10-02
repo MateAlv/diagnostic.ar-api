@@ -1,0 +1,22 @@
+# The HPO embeddings the extractor (Dockerfile.recognizer) runs with: a release
+# of MateAlv/diagnostic.ar-model, generated there from hpo-embeddings/embeddings.lock
+# and published when a change to it is merged. fetch_embeddings.sh downloads and
+# checks it; the Dockerfile refuses any other file, and refuses to build when the
+# package's manifest disagrees with the pins below or with the recognizer's own
+# generator script (so a new encoder means new embeddings, never a mismatch).
+#
+# To move to another version: publish it in diagnostic.ar-model, then change
+# EMB_TAG and EMB_SHA256 here, together with the pins below if they changed.
+EMB_REPO=MateAlv/diagnostic.ar-model
+EMB_TAG=hpo-embeddings-v1.0.0
+EMB_ASSET=hpo-embeddings-clinlinker-kb-gp.tar.gz
+# The sha256 the release publishes (its .sha256 asset). PENDING until the
+# release exists; fetch_embeddings.sh refuses to run with it.
+EMB_SHA256=PENDING
+
+# The encoder the extractor loads at run time to encode what people write. It
+# must be the one the embeddings were made with.
+CLINLINKER_REPO=ICB-UMA/ClinLinker-KB-GP
+CLINLINKER_REVISION=8f914c58a1cbcff43331eb15b101eaa5e5c6920a
+# The Spanish HPO labels the embeddings were made from; they ship in the package.
+HPO_TRANSLATIONS_COMMIT=69f7f96fba5ae4c1b999028991510088f3480487

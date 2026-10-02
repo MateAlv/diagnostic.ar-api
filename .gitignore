@@ -25,3 +25,7 @@ data/audit-db/
 # services/genphenai/fetch_model.sh
 services/genphenai/model-dist/
 services/genphenai/model/*/
+
+# The extractor's HPO embeddings: a diagnostic.ar-model release, fetched by
+# services/api-gateway/fetch_embeddings.sh
+embeddings-dist/

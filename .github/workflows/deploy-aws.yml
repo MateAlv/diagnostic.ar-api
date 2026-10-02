@@ -13,7 +13,7 @@ name: Deploy to AWS
 # file changes nothing by itself. No AWS key is stored here: GitHub signs in
 # with OIDC, as a role that only main of this repository can assume.
 # DEPLOY_READ_TOKEN reads the two other private repositories (the recognizer's
-# code and the model release).
+# code, and the model and HPO embeddings releases of diagnostic.ar-model).
 
 on:
   push:
@@ -118,6 +118,13 @@ jobs:
         run: |
           docker run --rm -v "$PWD/api/services/genphenai/tests:/app/tests:ro" ${{ steps.target.outputs.model }} \
             sh -c "pip install -q --user pytest==8.3.2 httpx==0.28.1 && python -m pytest /app/tests -q -p no:cacheprovider"
+
+      # The extractor's HPO embeddings come ready made, from the
+      # diagnostic.ar-model release pinned in embeddings.lock.
+      - name: Fetch the pinned HPO embeddings
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEPLOY_READ_TOKEN }}
+        run: api/services/api-gateway/fetch_embeddings.sh
 
       - name: Build the extractor
         uses: docker/build-push-action@v6

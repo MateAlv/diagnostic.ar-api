@@ -5,6 +5,11 @@ GenPhenia v3.0 model runs in this process from the bundle under ``model/``,
 exported to ONNX so it needs neither torch nor a GPU. The response keeps the
 schema the UI already consumes, and specialties/confidence are computed from
 the full score distribution.
+
+When model.lock pins a re-ranker (rr-v1), a request may name the HPO terms the
+patient does not have (``excluded_hpo_ids``, the question agent's "no"
+answers): the whole distribution is re-ranked before anything is read from it.
+Without them the output is the model's own, bit for bit.
 """
 
 from __future__ import annotations
@@ -37,6 +42,8 @@ _BUNDLE_DIR = Path(os.getenv("GENPHENIA_BUNDLE_DIR", str(_SERVICE_DIR / "model" 
 _CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 _POSTPROCESS_TOP_K = int(os.getenv("GENPHENIA_POSTPROCESS_TOP_K", "200"))
 _INFERENCE_MAX_TOP_K = int(os.getenv("GENPHENIA_INFERENCE_MAX_TOP_K", "5229"))
+_MODEL_LOCK = Path(os.getenv("GENPHENIA_MODEL_LOCK", str(_SERVICE_DIR / "model.lock")))
+_RERANK_DIR = Path(os.getenv("RERANK_BUNDLE_DIR", str(_SERVICE_DIR / "model" / "rerank-v1.0")))
 
 _HPO_ID_RE = re.compile(r"^HP:\d+$")
 
@@ -53,6 +60,9 @@ _engine = None
 _gene_to_specialties: Optional[Dict[str, Any]] = None
 _recommend_specialties = None
 _confidence_from_distribution = None
+_reranker = None
+_rerank_name: Optional[str] = None
+_rerank_pin: Dict[str, str] = {}
 # The engine's preprocessing cache is a plain OrderedDict; requests run in a
 # thread pool, so predictions are serialised. One takes a few milliseconds.
 _predict_lock = threading.Lock()
@@ -70,8 +80,30 @@ def load_engine(bundle_dir: Path):
     )
 
 
+def read_lock(path: Path) -> Dict[str, str]:
+    """model.lock as a dict; empty when there is none (a checkout without it)."""
+    if not path.is_file():
+        return {}
+    pairs: Dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            pairs[key] = value
+    return pairs
+
+
+def load_reranker(bundle_dir: Path, genes):
+    """rr-v1 over the engine's genes, after every bundle file matches its sha256."""
+    from rerank import load
+    from rerank.bundle import read_config
+
+    return load(bundle_dir, genes), read_config(bundle_dir)["name"]
+
+
 def startup() -> None:
     global _engine, _gene_to_specialties, _recommend_specialties, _confidence_from_distribution
+    global _reranker, _rerank_name, _rerank_pin
 
     # Without the model the service has nothing to answer, so this is fatal.
     _engine = load_engine(_BUNDLE_DIR)
@@ -81,6 +113,14 @@ def startup() -> None:
         _BUNDLE_DIR,
         len(_engine.genes),
     )
+
+    # Pinned means required: a missing or altered bundle stops the service
+    # rather than serving the model without the re-ranker it was released with.
+    lock = read_lock(_MODEL_LOCK)
+    if lock.get("RERANK_TAG"):
+        _reranker, _rerank_name = load_reranker(_RERANK_DIR, _engine.genes)
+        _rerank_pin = {"release": lock["RERANK_TAG"], "sha256": lock.get("RERANK_SHA256", "")}
+        logger.info("re-ranker %s (%s) loaded from %s", _rerank_name, lock["RERANK_TAG"], _RERANK_DIR)
 
     try:
         from specialist_recommendation import (  # type: ignore
@@ -122,6 +162,13 @@ app.add_middleware(
 class RankRequest(BaseModel):
     hpo_ids: List[str] = Field(..., min_length=1, description="Patient HPO IDs")
     top_k: int = Field(50, ge=1, le=_INFERENCE_MAX_TOP_K)
+    excluded_hpo_ids: List[str] = Field(
+        default_factory=list,
+        description=(
+            "HPO IDs the patient does not have: the question agent's effective 'no' answers. "
+            "Never negations from free text, never 'no sé'. Ignored when no re-ranker is pinned."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +204,43 @@ def predict_scores(engine, hpo_ids: List[str]) -> Dict[str, float]:
     }
 
 
+def predict_reranked(engine, reranker, hpo_ids: List[str], excluded: List[str]) -> Dict[str, float]:
+    """The same distribution, re-ranked with the excluded terms before anything reads it.
+
+    The re-ranker works on the engine's distribution, in the engine's gene
+    order and spelling; only then are the symbols upper-cased, so results,
+    specialties and confidence all come from the one re-ranked distribution.
+    """
+    with _predict_lock:
+        result = engine.predict(hpo_ids=hpo_ids, top_k=1, return_distribution=True)
+    distribution = reranker.rerank_distribution(result["distribution"], excluded)
+    return {str(gene).strip().upper(): float(p) for gene, p in distribution.items()}
+
+
+def split_excluded_ids(reranker, excluded_ids: List[str], present: List[str]) -> tuple[List[str], List[str]]:
+    """The excluded terms the re-ranker can use, and the ones its ontology does not know.
+
+    A term also given as present is dropped: the patient cannot both have and
+    not have it, and the present one wins. Unknown terms are reported and move
+    nothing.
+    """
+    from inference_engine.preprocess import normalize_hpo_id
+
+    present_set = set(present)
+    seen: set = set()
+    usable: List[str] = []
+    for raw_id in excluded_ids:
+        normalized = normalize_hpo_id(raw_id)
+        if not _HPO_ID_RE.match(normalized):
+            raise HTTPException(status_code=422, detail=f"Invalid HPO ID: {raw_id!r}")
+        if normalized in present_set or normalized in seen:
+            continue
+        seen.add(normalized)
+        usable.append(normalized)
+    unknown = reranker.unknown_terms(usable)
+    return [t for t in usable if t not in unknown], unknown
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -170,6 +254,11 @@ async def healthz() -> Dict[str, Any]:
         "postprocess_top_k": _POSTPROCESS_TOP_K,
         "inference_max_top_k": _INFERENCE_MAX_TOP_K,
         "specialties_available": _gene_to_specialties is not None,
+        "rerank": (
+            {"name": _rerank_name, "release": _rerank_pin.get("release"), "sha256": _rerank_pin.get("sha256")}
+            if _reranker is not None
+            else None
+        ),
     }
 
 
@@ -188,10 +277,17 @@ def rank_genes(request: RankRequest) -> Dict[str, Any]:
         )
 
     input_count = len(request.hpo_ids)
+    excluded: List[str] = []
+    unknown_excluded: List[str] = []
+    if _reranker is not None and request.excluded_hpo_ids:
+        excluded, unknown_excluded = split_excluded_ids(_reranker, request.excluded_hpo_ids, known_ids)
     # The full distribution, so confidence_from_distribution and
     # recommend_specialties operate on all 5229 genes, not just the user's top_k.
     # The visible results are sliced to request.top_k below.
-    score_map = predict_scores(_engine, known_ids)
+    if excluded:
+        score_map = predict_reranked(_engine, _reranker, known_ids, excluded)
+    else:
+        score_map = predict_scores(_engine, known_ids)
 
     sorted_genes = sorted(score_map.items(), key=lambda x: x[1], reverse=True)
     top_genes = sorted_genes[: request.top_k]
@@ -230,5 +326,10 @@ def rank_genes(request: RankRequest) -> Dict[str, Any]:
         "confidence": confidence,
         "input_hpo_count": input_count,
         "unknown_hpo_ids": unknown_ids,
+        # Set only when excluded terms reached the re-ranker: the question agent
+        # tells people their "no" answers moved the list only when it is.
+        "rerank": _rerank_name if excluded else None,
+        "excluded_hpo_count": len(excluded),
+        "unknown_excluded_hpo_ids": unknown_excluded,
         "beta": False,
     }

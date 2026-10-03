@@ -20,28 +20,37 @@ RUN useradd --create-home --uid 10001 app
 
 # The model bundle first: it is the large, rarely changing layer. It is a
 # release of diagnostic.ar-model, fetched by fetch_model.sh; only the tarball
-# pinned in model.lock gets in.
+# pinned in model.lock gets in, and so does its re-ranker when one is pinned.
 RUN --mount=type=bind,source=services/genphenai/model.lock,target=/tmp/model.lock \
     --mount=type=bind,source=services/genphenai/model-dist,target=/tmp/model-dist \
     . /tmp/model.lock \
     && echo "$MODEL_SHA256  /tmp/model-dist/$MODEL_ASSET" | sha256sum -c \
     && mkdir -p /app/model \
     && tar -xzf "/tmp/model-dist/$MODEL_ASSET" -C /app/model \
+    && if [ -n "${RERANK_TAG:-}" ]; then \
+        echo "$RERANK_SHA256  /tmp/model-dist/$RERANK_ASSET" | sha256sum -c \
+        && tar -xzf "/tmp/model-dist/$RERANK_ASSET" -C /app/model; \
+    fi \
     && chown -R app /app/model
 COPY --chown=app services/genphenai/data /app/data
 COPY --chown=app services/genphenai/inference_engine /app/inference_engine
+COPY --chown=app services/genphenai/rerank /app/rerank
+# Read at startup: when it pins a re-ranker, the service needs it to start.
+COPY --chown=app services/genphenai/model.lock /app/model.lock
 COPY --chown=app services/genphenai/confidence.py services/genphenai/specialist_recommendation.py /app/
 COPY --chown=app services/genphenai/app /app/app
 
 ENV PYTHONPATH=/app \
     GENPHENIA_BUNDLE_DIR=/app/model/genphenia-v3.0 \
-    GENPHENIA_DATA_DIR=/app/data
+    GENPHENIA_DATA_DIR=/app/data \
+    GENPHENIA_MODEL_LOCK=/app/model.lock \
+    RERANK_BUNDLE_DIR=/app/model/rerank-v1.0
 
 USER app
 
-# Loading the bundle once writes its checkpoint registry, so startup does not
+# Loading the bundles once writes the checkpoint registry, so startup does not
 # hash the checkpoint again, and a broken bundle fails the build, not a request.
-RUN python -c "from app.main import load_engine; import os; load_engine(os.environ['GENPHENIA_BUNDLE_DIR'])"
+RUN python -c "from app.main import startup; startup()"
 
 EXPOSE 18020
 

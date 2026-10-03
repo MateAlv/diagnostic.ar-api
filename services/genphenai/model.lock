@@ -4,3 +4,12 @@ MODEL_REPO=MateAlv/diagnostic.ar-model
 MODEL_TAG=model-v3.0.0
 MODEL_ASSET=genphenia-v3.0.tar.gz
 MODEL_SHA256=2201b7f2868afaf00439f76a6197bcf1d94eccc5ea171173719ca48c517a61c8
+
+# The re-ranker over that model: rr-v1[neg=0.5], which moves down the genes
+# that annotate a symptom the patient answered "no" to (excluded_hpo_ids).
+# Without excluded terms the output is the model's own, bit for bit. When this
+# is pinned the service refuses to start without the bundle, or with any file
+# in it that does not match its sha256 (rerank/bundle.py).
+RERANK_TAG=rerank-v1.0.0
+RERANK_ASSET=rerank-v1.0.tar.gz
+RERANK_SHA256=4b83f5e39e003aca2dde834948392800655102199f8af099985191b69f8e79e2

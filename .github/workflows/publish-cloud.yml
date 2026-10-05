@@ -13,6 +13,10 @@ name: Publish to the cloud copy
 # changes. The model is the release pinned in services/genphenai/model.lock.
 # DEPLOY_READ_TOKEN reads the two other private repositories (the recognizer's
 # code, and the model and HPO embeddings releases of diagnostic.ar-model).
+#
+# The extractor is published from both repositories, so before moving its
+# channel this run checks it would not put older code back
+# (.github/scripts/cloud-channel-guard.py, the same in both).
 
 on:
   push:
@@ -26,6 +30,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: write   # to start a new run when each repository has a commit the other's image lacks
 
 # One publish at a time, and never cancelled halfway: the channel moves last.
 concurrency:
@@ -40,6 +45,7 @@ jobs:
     outputs:
       model_revision: ${{ steps.target.outputs.model_tag }}
       recognizer_revision: ${{ steps.target.outputs.recognizer_tag }}
+      recognizer_moved: ${{ steps.guard.outputs.decision == 'move' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,6 +75,7 @@ jobs:
             echo "model_tag=api-$api"
             echo "recognizer=$registry/diagnosticar-cloud-hpo-recognizer:api-$api-rec-$rec"
             echo "recognizer_tag=api-$api-rec-$rec"
+            echo "recognizer_commit=$(git -C recognizer rev-parse HEAD)"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
@@ -123,9 +130,13 @@ jobs:
           load: true
           provenance: false
           tags: ${{ steps.target.outputs.recognizer }}
+          # Both commits, full: cloud-channel-guard.py compares them with the
+          # channel's before moving it.
           labels: |
             org.opencontainers.image.revision=${{ steps.target.outputs.recognizer_tag }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            ar.diagnostic.api.commit=${{ github.sha }}
+            ar.diagnostic.recognizer.commit=${{ steps.target.outputs.recognizer_commit }}
           cache-from: type=gha,scope=cloud-recognizer
           cache-to: type=gha,scope=cloud-recognizer,mode=max
 
@@ -144,13 +155,52 @@ jobs:
 
       # Last, and only once both passed and exist: the machines pull the
       # channel, so it must never point at an image that did not pass.
-      - name: Move the channel
+      # Only this repository publishes the model.
+      - name: Move the model's channel
+        run: |
+          src=${{ steps.target.outputs.model }}
+          docker buildx imagetools create -t "${src%:*}:cloud" "$src"
+          echo "### Published \`${{ steps.target.outputs.model_tag }}\` to the \`cloud\` channel" >> "$GITHUB_STEP_SUMMARY"
+
+      # The extractor is published from spanish-symptoms-recognizer too, and
+      # its run may have finished first with newer code.
+      - name: May this run move the extractor's channel?
+        id: guard
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DEPLOY_READ_TOKEN }}
         run: |
           set -euo pipefail
-          for src in ${{ steps.target.outputs.model }} ${{ steps.target.outputs.recognizer }}; do
-            docker buildx imagetools create -t "${src%:*}:cloud" "$src"
-          done
-          echo "### Published \`${{ steps.target.outputs.model_tag }}\` and \`${{ steps.target.outputs.recognizer_tag }}\` to the \`cloud\` channel" >> "$GITHUB_STEP_SUMMARY"
+          src=${{ steps.target.outputs.recognizer }}
+          decision=$(python3 api/.github/scripts/cloud-channel-guard.py "${src%:*}" \
+            "$GITHUB_SHA" "${{ steps.target.outputs.recognizer_commit }}")
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "extractor: $decision"
+
+      - name: Move the extractor's channel
+        if: steps.guard.outputs.decision == 'move'
+        run: |
+          src=${{ steps.target.outputs.recognizer }}
+          docker buildx imagetools create -t "${src%:*}:cloud" "$src"
+          echo "### Published \`${{ steps.target.outputs.recognizer_tag }}\` to the \`cloud\` channel" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Leave the extractor's channel as it is
+        if: steps.guard.outputs.decision == 'skip'
+        run: |
+          echo "::notice::The extractor's channel already has newer code; it stays."
+          echo "### Extractor not published: the channel already has newer code" >> "$GITHUB_STEP_SUMMARY"
+
+      # Each side has a commit the other's image lacks: a new run takes the
+      # latest main of both, which has everything.
+      - name: Rebuild the extractor with both repositories' latest main
+        if: steps.guard.outputs.decision == 'rebuild'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish-cloud.yml -R "$GITHUB_REPOSITORY" --ref main
+          echo "::notice::The extractor's channel and this run each have a commit the other lacks; started a new run with both."
+          echo "### Extractor not published: started a new run with both repositories' latest main" >> "$GITHUB_STEP_SUMMARY"
 
   # Optional: wait for each machine listed in the repository variable
   # CLOUD_URLS (space-separated https://… URLs) to report these images
@@ -166,9 +216,18 @@ jobs:
       - name: Wait for the machines
         env:
           URLS: ${{ vars.CLOUD_URLS }}
-          EXPECT: '{"model": "${{ needs.publish.outputs.model_revision }}", "recognizer": "${{ needs.publish.outputs.recognizer_revision }}"}'
+          MODEL: ${{ needs.publish.outputs.model_revision }}
+          RECOGNIZER: ${{ needs.publish.outputs.recognizer_revision }}
+          RECOGNIZER_MOVED: ${{ needs.publish.outputs.recognizer_moved }}
         run: |
           set -euo pipefail
+          # The extractor only counts if this run moved its channel.
+          if [ "$RECOGNIZER_MOVED" = true ]; then
+            EXPECT=$(jq -nc --arg m "$MODEL" --arg r "$RECOGNIZER" '{model: $m, recognizer: $r}')
+          else
+            EXPECT=$(jq -nc --arg m "$MODEL" '{model: $m}')
+          fi
+          export EXPECT
           for url in $URLS; do
             echo "::group::$url"
             ok=""

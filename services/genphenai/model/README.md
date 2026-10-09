@@ -35,6 +35,25 @@ runs here, and torch is imported only by the export code, which never runs.
 `../data/panelapp_panels.csv` maps genes to specialties; it comes from
 `LUCAI-Bioinformatics/diagnosticar_tools` at `e328ba3`.
 
+## ft-v1.1
+
+`model.lock` also pins `ft-v1.1.0`, a release of the same repository:
+`ft-v1.1-confirmed.tar.gz`, with `ft.json`, `ft_prod.py` and the bundle. It is
+a residual over the model's distribution that can only lower a gene, from the
+patient's sex, age, age at onset and excluded terms (the optional `sex`,
+`age_years`, `onset_years` and `excluded_hpo_ids` of `/rank-genes`).
+
+- **Loading.** It is loaded whenever it is pinned. `../ft/` refuses any file that does not match `ft.json`, and the service then does not start.
+- **The flag.** It runs only with `FT_V11_ENABLED=true`.
+  - Off, or without any of those fields, the response is the model's own, bit for bit.
+  - While it is on, rr-v1 is not applied: E0 plus ft-v1.1 is the system that was measured.
+- **`/healthz`.** Reports it under `ft`, with both sha256s and whether it is enabled.
+- **Responses.** `ft` names it when it was applied, and `rerank` names it when excluded terms reached it.
+
+What it does, its evidence and its limits are in diagnostic.ar-model's
+`docs/ft-v1.1.md`. `../ft/__init__.py` is vendored from there, as `../rerank/`
+is.
+
 ## Serving a new model
 
 Publish it from diagnostic.ar-model, then update `model.lock`, the checkpoint

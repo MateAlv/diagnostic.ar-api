@@ -39,6 +39,12 @@ def client():
         yield test_client
 
 
+@pytest.fixture(autouse=True)
+def ft_off(client, monkeypatch):
+    """rr-v1 is what runs while ft-v1.1 is off, whatever FT_V11_ENABLED says here."""
+    monkeypatch.setattr(main, "_ft_enabled", False)
+
+
 def _case(group: str) -> dict:
     """The first parity case whose excluded terms moved its gene, or did not."""
     for case in PARITY:

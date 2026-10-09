@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Downloads the bundles pinned in model.lock (the model and, when pinned, its
-# re-ranker) and checks their sha256.
+# re-ranker and ft-v1.1) and checks their sha256.
 #
 # Leaves the tarball in model-dist/ (what the Dockerfile copies) and unpacks
 # it into model/ (what the tests and a local uvicorn load). Uses GITHUB_TOKEN
@@ -31,4 +31,7 @@ fetch() {
 fetch "$MODEL_ASSET" "$MODEL_SHA256" "$MODEL_TAG"
 if [ -n "${RERANK_TAG:-}" ]; then
     fetch "$RERANK_ASSET" "$RERANK_SHA256" "$RERANK_TAG"
+fi
+if [ -n "${FT_TAG:-}" ]; then
+    fetch "$FT_ASSET" "$FT_SHA256" "$FT_TAG"
 fi

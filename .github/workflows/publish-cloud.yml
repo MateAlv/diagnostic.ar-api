@@ -1,6 +1,8 @@
 name: Publish to the cloud copy
 
-# A push to main builds the model service and the symptom extractor, tests
+# Run by hand (the Actions tab, or `gh workflow run publish-cloud.yml`), not on
+# every push: Actions minutes are a monthly quota shared by every repository of
+# the account. It builds the model service and the symptom extractor, tests
 # both inside their images, and publishes them to GHCR for diagnostic.ar's
 # provider-neutral cloud copy (infra/cloud/README.md in MateAlv/diagnostic.ar).
 # The machines follow the channel tag `cloud`: each checks it every 5 minutes,
@@ -9,8 +11,8 @@ name: Publish to the cloud copy
 # credential, so the same run serves a copy on any provider.
 #
 # The extractor is built against the latest main of
-# MateAlv/spanish-symptoms-recognizer, which publishes it the same way when it
-# changes. The model is the release pinned in services/genphenai/model.lock.
+# MateAlv/spanish-symptoms-recognizer, which can publish it the same way. The
+# model is the release pinned in services/genphenai/model.lock.
 # DEPLOY_READ_TOKEN reads the two other private repositories (the recognizer's
 # code, and the model and HPO embeddings releases of diagnostic.ar-model).
 #
@@ -19,12 +21,6 @@ name: Publish to the cloud copy
 # (.github/scripts/cloud-channel-guard.py, the same in both).
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "web/**"
   workflow_dispatch:
 
 permissions:

@@ -69,20 +69,25 @@ Content-Type: application/json
 
 {
   "hpo_ids": ["HP:0001530", "HP:0000938"],
-  "top_k": 10
+  "top_k": 10,
+  "sex": "female",
+  "age_years": 7.5,
+  "onset_years": 2.0
 }
 ```
 
-The `genphenai` service runs the GenPhenia v3.0 model in process, on the CPU,
-and returns
-the schema the frontend already consumes (`results`, `specialties`,
-`confidence`). HPO IDs the model's release does not know are left out and
-listed in `unknown_hpo_ids`; a request with none it knows is a 422.
+The `genphenai` service runs the GenPhenia v4 network (`model-v4.0.0`) in
+process, on the CPU, followed by v4-layer, and returns the schema the frontend
+already consumes (`results`, `specialties`, `confidence`). `sex`, `age_years`
+and `onset_years` are optional; v4-layer reads them, and without them the
+ranking is the network's own. HPO IDs the model's release does not know are
+left out and listed in `unknown_hpo_ids`; a request with none it knows is a
+422.
 
-The model is a release of `diagnostic.ar-model`, pinned in
+The model and the layer are releases of `diagnostic.ar-model`, pinned in
 `services/genphenai/model.lock` (see `services/genphenai/model/README.md`).
-Fetch it before building or testing; the tests compare the rankings with what
-production served:
+Fetch them before building or testing; the tests compare the rankings with the
+release's own fixture:
 
 ```bash
 services/genphenai/fetch_model.sh

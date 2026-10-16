@@ -1,24 +1,21 @@
 # The GenPhenia bundle /rank-genes serves: a release of MateAlv/diagnostic.ar-model.
 # fetch_model.sh downloads and checks it; the Dockerfile refuses anything else.
+#
+# model-v4.0.0 is the v4 network (genphenia-v4.0): E0's architecture and input
+# contract, retrained. Its engine still reports model_version "3.0", the
+# architecture; the tarball's sha256 is what names it.
 MODEL_REPO=MateAlv/diagnostic.ar-model
-MODEL_TAG=model-v3.0.0
-MODEL_ASSET=genphenia-v3.0.tar.gz
-MODEL_SHA256=2201b7f2868afaf00439f76a6197bcf1d94eccc5ea171173719ca48c517a61c8
+MODEL_TAG=model-v4.0.0
+MODEL_ASSET=genphenia-v4.0.tar.gz
+MODEL_SHA256=62b2c5e8eb4609d1003a81c3632ea82cf2b1173f4ffc646a02ecb66d38d95cc3
 
-# The re-ranker over that model: rr-v1[neg=0.5], which moves down the genes
-# that annotate a symptom the patient answered "no" to (excluded_hpo_ids).
-# Without excluded terms the output is the model's own, bit for bit. When this
-# is pinned the service refuses to start without the bundle, or with any file
-# in it that does not match its sha256 (rerank/bundle.py).
-RERANK_TAG=rerank-v1.0.0
-RERANK_ASSET=rerank-v1.0.tar.gz
-RERANK_SHA256=4b83f5e39e003aca2dde834948392800655102199f8af099985191b69f8e79e2
-
-# ft-v1.1-confirmed over that model: a residual that can only lower a gene, by
-# sex, onset (or age) and excluded terms. It is loaded whenever it is pinned,
-# and refuses to start with any file that does not match ft.json, but it runs
-# only with FT_V11_ENABLED=true; off, or without those inputs, the output is
-# the model's own, bit for bit. While it is on, rr-v1 above is not applied.
-FT_TAG=ft-v1.1.0
-FT_ASSET=ft-v1.1-confirmed.tar.gz
-FT_SHA256=1ff0130b793847dfb2a188c533b94c7047e3fc5875d48b0eed21c96319f27bc6
+# v4-layer over that network's logits: an add-on that can only lower a gene,
+# by sex and onset (or age), and a hard rule that moves the genes impossible
+# for the patient's sex to the bottom. With no sex, age or onset the output is
+# the network's own, bit for bit; excluded terms change nothing. When it is
+# pinned the service refuses to start without it, with any file that does not
+# match v4.json, or under any other model than the one v4.json names
+# (v4layer/). V4_LAYER_ENABLED=false serves the network alone.
+V4_LAYER_TAG=model-v4.0.0
+V4_LAYER_ASSET=v4-layer.tar.gz
+V4_LAYER_SHA256=80d1b159472b5730cfa57f3c636c864c854c820be0c2ee740f67e68c2f399df9

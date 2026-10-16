@@ -76,6 +76,13 @@ The re-ranker rr-v1 and ft-v1.1, which this service ran over v3.0, are gone:
 both were fitted on v3.0's scores and lower v4 (ADR-0020 in
 diagnostic.ar-training).
 
+## Checking a deployment
+
+`../check_deployed.py https://<host>/genphenai` runs the fixture's 32 cases
+through a deployed `/rank-genes`, without and with the layer's inputs, checks
+that `/healthz` names the pinned model and layer, and reports the latency.
+Standard library only.
+
 ## Serving a new model
 
 Publish it from diagnostic.ar-model, then update `model.lock`, the hashes

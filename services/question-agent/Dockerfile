@@ -34,6 +34,12 @@ COPY --from=agent src ./src
 # The agent's pyproject.toml only sets lower bounds; its constraints.txt pins
 # every runtime dependency, so two builds of one agent commit install the same
 # versions.
+#
+# Except certifi: the agent pins 2026.7.22, which bundles emSign root CAs whose
+# intermediate keys were compromised (GHSA-6q48-6c7w-9gw2, CRITICAL), and the
+# release scan rejects it. Raised here until the agent's own pin moves.
+RUN sed -i 's/^certifi==.*/certifi==2026.10.18/' constraints.txt \
+    && grep -qx 'certifi==2026.10.18' constraints.txt
 RUN pip wheel --wheel-dir /wheels -c constraints.txt . \
     && pip install --no-index --find-links /wheels diagnosticar-preguntas
 

@@ -8,13 +8,21 @@ Los servicios de Python que usa [diagnostic.ar](https://github.com/MateAlv/diagn
 
 Es parte del Trabajo Profesional de Ingeniería en Informática (FIUBA) de Mateo Alvarez, Mariano Brizuela López, Gonzalo Bustamante y Lucía Lourengo Caridade.
 
-## Probarlo
+## Cómo corre en producción
+
+Las imágenes que corren en staging, producción y la copia en AWS no salen del `docker-compose.yml` de este repo. Las arma el pipeline de [diagnosticar-plataforma](https://github.com/MateAlv/diagnosticar-plataforma), que fija el commit de este repo, y las levanta el `docker-compose.prod.yml` de la plataforma. Ahí el api-gateway se construye con `services/api-gateway/Dockerfile.recognizer` y corre con `USE_RECOGNIZER=true`, que extrae los síntomas con Claude (`RECOGNIZER_PROVIDER=claude-cli`). Las imágenes parten de `python:3.12-slim` y corren en CPU.
+
+## Probarlo en local
+
+El `docker-compose.yml` de este repo levanta el extractor original, que usa Ollama (`qwen2.5:7b`) y la imagen con CUDA de `services/api-gateway/Dockerfile`. Quedó del primer despliegue, en el nodo brainy, y por eso `.env.example` todavía trae variables de GPU, de Ollama y de NLLB. El modelo no está en el repo, así que hay que bajarlo antes:
 
 ```bash
+cp .env.example .env                 # completar los valores marcados CHANGE_ME
+services/genphenai/fetch_model.sh    # baja model-v4.0.0 de diagnostic.ar-model (usa el CLI gh con sesión iniciada)
 docker compose up --build
 ```
 
-La API queda en http://localhost:8000.
+La API queda en http://localhost:8000 y el modelo en http://localhost:18020. Para extraer síntomas hace falta un servidor de Ollama en `OLLAMA_URL`.
 
 ## Licencia
 

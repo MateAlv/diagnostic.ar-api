@@ -246,14 +246,32 @@ class HpoIndex:
         return hpo_id, label_en, label_es, "fuzzy_es", confidence
 
     def search_es(self, query: str, limit: int = 20) -> List[Dict[str, str]]:
+        """Autocomplete for the symptom search box. Not used by extraction.
+
+        Labels that start with the query come first, as before. The rest must
+        contain every content word of the query, as a word or the start of
+        one: "retraso del des" finds "Retraso del desarrollo neurológico" and
+        nothing about the urinary tract, which the old whole-string fuzzy score
+        let in on "del" alone. A word that starts no label at all is allowed a
+        typo ("convulsines"). Obsolete terms are left out.
+        """
         normalized = normalize_key_es(query)
         if not normalized or not self._label_es_entries:
             return []
+        search = self._search_es_index()
         results: List[Dict[str, str]] = []
         seen = set()
 
+        for entry in search.synonym_equal_to(_search_words(query)):
+            results.append(_format_es_result(entry, self.terms_by_id))
+            seen.add(entry["hpo_id"])
+        if len(results) >= limit:
+            return results[:limit]
+
         prefix_matches = [
-            entry for entry in self._label_es_entries if entry["label_es_norm"].startswith(normalized)
+            entry
+            for entry in self._label_es_entries
+            if entry["label_es_norm"].startswith(normalized) and search.offers(entry)
         ]
         prefix_matches.sort(
             key=lambda entry: (len(entry["label_es"]), _hpo_numeric_id(entry["hpo_id"]))
@@ -266,28 +284,159 @@ class HpoIndex:
             if len(results) >= limit:
                 return results
 
-        fuzzy_matches = process.extract(
-            normalized,
-            self._label_es_norms,
-            scorer=fuzz.WRatio,
-            score_cutoff=78,
-            limit=max(limit * 2, 20),
-        )
-        scored_entries: List[tuple[float, Dict[str, str]]] = []
-        for _, score, idx in fuzzy_matches:
-            entry = self._label_es_entries[idx]
+        for entry in search.by_words(query):
             if entry["hpo_id"] in seen:
                 continue
-            scored_entries.append((score, entry))
-        scored_entries.sort(
-            key=lambda item: (-item[0], _hpo_numeric_id(item[1]["hpo_id"]))
-        )
-        for _, entry in scored_entries:
             results.append(_format_es_result(entry, self.terms_by_id))
             seen.add(entry["hpo_id"])
             if len(results) >= limit:
                 break
         return results
+
+    def _search_es_index(self) -> "_SpanishSearchIndex":
+        cached = getattr(self, "_search_es_cache", None)
+        if cached is None:
+            cached = _SpanishSearchIndex(self._label_es_entries, set(self.terms_by_id))
+            self._search_es_cache = cached
+        return cached
+
+
+# Words that carry no meaning on their own in an HPO label.
+_SEARCH_STOPWORDS = frozenset(
+    "a al con de del el en la las lo los o para por sin su sus u un una y".split()
+)
+
+# Everyday Spanish that has no label of its own. Each one is an EXACT or
+# RELATED English synonym of the same term in hp.obo, which hp-es.json does
+# not translate. Shown under the term's official Spanish label.
+_SEARCH_SYNONYMS_ES: Dict[str, Tuple[str, ...]] = {
+    "HP:0000365": ("sordera",),  # Deafness
+    "HP:0001250": ("epilepsia",),  # Epilepsy
+    "HP:0001263": ("retraso global del desarrollo", "retraso del desarrollo"),  # Developmental delay
+}
+
+
+def _all_search_words(text: str) -> List[str]:
+    """Split on anything that is not a letter or a digit, so
+    "auditiva/hipoacusia" is two words and not "auditivahipoacusia"."""
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.findall(r"[a-z0-9]+", text)
+
+
+def _search_words(text: str) -> List[str]:
+    return [word for word in _all_search_words(text) if word not in _SEARCH_STOPWORDS]
+
+
+def _with_or_without(text: str) -> frozenset:
+    """"con" and "sin" are too common to search by, but they reverse a label."""
+    return frozenset(_all_search_words(text)) & {"con", "sin"}
+
+
+class _SpanishSearchIndex:
+    """Word index over the Spanish labels, built on the first search."""
+
+    TYPO_MIN_LENGTH = 5
+    TYPO_CUTOFF = 85
+
+    def __init__(self, entries: List[Dict[str, str]], current_ids: set) -> None:
+        self._current_ids = current_ids
+        self._docs: List[Tuple[Dict[str, str], frozenset, int]] = []
+        self._synonyms: Dict[frozenset, List[Dict[str, str]]] = {}
+        by_id = {entry["hpo_id"]: entry for entry in entries}
+        for entry in entries:
+            words = frozenset(_search_words(entry["label_es"]))
+            if words and self.offers(entry):
+                self._docs.append((entry, words, len(words)))
+        for hpo_id, phrases in _SEARCH_SYNONYMS_ES.items():
+            entry = by_id.get(hpo_id)
+            if entry is None or not self.offers(entry):
+                continue
+            for phrase in phrases:
+                words = frozenset(_search_words(phrase))
+                self._docs.append((entry, words, len(words)))
+                self._synonyms.setdefault(words, []).append(entry)
+        self._docs_by_word: Dict[str, List[int]] = {}
+        for position, (_, words, _) in enumerate(self._docs):
+            for word in words:
+                self._docs_by_word.setdefault(word, []).append(position)
+        self._vocabulary = sorted(self._docs_by_word)
+
+    def offers(self, entry: Dict[str, str]) -> bool:
+        # Every id in hp-es.json that hp.obo does not list as a term is obsolete
+        # or an alt_id there (with no ontology loaded, keep them all). A few
+        # current terms still carry a translation that starts "obsoleto".
+        if self._current_ids and entry["hpo_id"] not in self._current_ids:
+            return False
+        return not entry["label_es_norm"].startswith("obsolet")
+
+    def synonym_equal_to(self, words: List[str]) -> List[Dict[str, str]]:
+        """The terms one of whose synonyms is exactly the query."""
+        return self._synonyms.get(frozenset(words), []) if words else []
+
+    def _matching_words(self, word: str, relaxed: bool) -> Dict[str, float]:
+        """The label words `word` stands for, each with how close it is (0-100)."""
+        if len(word) < 3:
+            return {word: 100.0} if word in self._docs_by_word else {}
+        found = {candidate: 100.0 for candidate in self._vocabulary if candidate.startswith(word)}
+        # A correct word never turns into a neighbour: "microcefalia" must not
+        # reach "macrocefalia", nor "hipotonia" "hipertonia". Only a word that
+        # starts no label word gets a typo allowance, and on a retry a word that
+        # is only the start of some ("anomal" for "anormal"), never a whole one.
+        allow_typo = not found or (relaxed and word not in self._docs_by_word)
+        if allow_typo and len(word) >= self.TYPO_MIN_LENGTH:
+            close = process.extract(
+                word, self._vocabulary, scorer=fuzz.ratio, score_cutoff=self.TYPO_CUTOFF, limit=None
+            )
+            for candidate, score, _ in close:
+                found.setdefault(candidate, score)
+        return found
+
+    def _ranked(self, words: List[str], query_says: frozenset, relaxed: bool) -> List[Tuple]:
+        closeness: Dict[int, List[float]] = {}
+        for word in words:
+            best: Dict[int, float] = {}
+            for candidate, score in self._matching_words(word, relaxed).items():
+                for position in self._docs_by_word[candidate]:
+                    best[position] = max(best.get(position, 0.0), score)
+            for position, score in best.items():
+                closeness.setdefault(position, []).append(score)
+        # Every content word must be there. A long query may miss one, below
+        # the labels that have them all.
+        needed = len(words) if len(words) < 3 else len(words) - 1
+        ranked = []
+        for position, scores in closeness.items():
+            if len(scores) < needed:
+                continue
+            entry, _, size = self._docs[position]
+            label_says = _with_or_without(entry["label_es"])
+            ranked.append(
+                (
+                    len(scores) < len(words),
+                    bool(query_says and label_says and query_says != label_says),
+                    # The closest spelling first, so "hiperrflexia" gives
+                    # Hiperreflexia ahead of Hiporreflexia.
+                    -sum(scores),
+                    size - len(scores),
+                    len(entry["label_es"]),
+                    _hpo_numeric_id(entry["hpo_id"]),
+                    entry,
+                )
+            )
+        ranked.sort(key=lambda item: item[:6])
+        return ranked
+
+    def by_words(self, query: str) -> List[Dict[str, str]]:
+        words = list(dict.fromkeys(_search_words(query)))
+        if not words:
+            return []
+        query_says = _with_or_without(query)
+        ranked = self._ranked(words, query_says, relaxed=False)
+        if not ranked or ranked[0][0]:
+            retried = self._ranked(words, query_says, relaxed=True)
+            if retried and not retried[0][0]:
+                ranked = retried
+        return [item[-1] for item in ranked]
 
 
 def load_hpo_es_json(path: Path) -> Dict[str, str]:
@@ -300,7 +449,7 @@ def load_hpo_es_json(path: Path) -> Dict[str, str]:
 
 
 def _hpo_numeric_id(hpo_id: str) -> int:
-    match = re.search(r"HP:(\\d+)", hpo_id)
+    match = re.search(r"HP:(\d+)", hpo_id)
     return int(match.group(1)) if match else 10_000_000
 
 
